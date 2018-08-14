@@ -6,6 +6,7 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"io/ioutil"
@@ -32,16 +33,38 @@ func main() {
 	var err error
 
 	// create context
-	ctxt, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// create chrome instance
-	c, err := chromedp.New(ctxt)
+	c, err := chromedp.New(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = c.Run(ctxt, chromedp.Tasks{
+	enableNetworkEvents(ctx, c)
+	res, err := createSnapshot(ctx, c, url)
+
+	// shutdown chrome
+	err = c.Shutdown(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// wait for chrome to finish
+	err = c.Wait()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = ioutil.WriteFile(output, res, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func createSnapshot(ctx context.Context, c *chromedp.CDP, url string) ([]byte, error) {
+	err := c.Run(ctx, chromedp.Tasks{
 		chromedp.Navigate(url),
 		chromedp.Sleep(3 * time.Second),
 		//chromedp.WaitVisible(".content", chromedp.ByQuery),
@@ -64,22 +87,14 @@ func main() {
 
 		return err
 	})
-	err = c.Run(ctxt, af)
+	err = c.Run(ctx, af)
 
-	// shutdown chrome
-	err = c.Shutdown(ctxt)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return res, err
+}
 
-	// wait for chrome to finish
-	err = c.Wait()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = ioutil.WriteFile(output, res, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
+func enableNetworkEvents(ctx context.Context, c *chromedp.CDP) error {
+	af := chromedp.ActionFunc(func(ctx context.Context, h cdp.Executor) error {
+		return network.Enable().Do(ctx, h)
+	})
+	return c.Run(ctx, af)
 }
