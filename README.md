@@ -5,7 +5,7 @@ Create an image of a webpage
 mug -u `https://some.site/` -o `image.png`
 
 # imgdiff
-Compare images
+Compare images. Only PNG images are supported
 
 ## Usage
 imgdiff -i1 `image1.png` -i2 `image2.png`
