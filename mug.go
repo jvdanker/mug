@@ -17,15 +17,19 @@ import (
 
 func main() {
 	var (
-		url    = ""
-		output = ""
+		url     = ""
+		output  = ""
+		verbose = false
+		usage   = false
 	)
 
 	flag.StringVar(&url, "u", url, "URL")
 	flag.StringVar(&output, "o", output, "Output filename")
+	flag.BoolVar(&verbose, "v", verbose, "Verbose output")
+	flag.BoolVar(&usage, "?", usage, "Display usage")
 	flag.Parse()
 
-	if url == "" || output == "" {
+	if url == "" || output == "" || usage {
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -36,13 +40,21 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var opts chromedp.Option = func(c *chromedp.CDP) error {
+		return nil
+	}
+
+	if verbose {
+		opts = chromedp.WithLog(log.Printf)
+	}
+
 	// create chrome instance
-	c, err := chromedp.New(ctx)
+	c, err := chromedp.New(ctx, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	enableNetworkEvents(ctx, c)
+	//enableNetworkEvents(ctx, c)
 	res, err := createSnapshot(ctx, c, url)
 
 	// shutdown chrome
