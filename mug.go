@@ -9,6 +9,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/runner"
 	"io/ioutil"
 	"log"
 	"os"
@@ -48,8 +49,11 @@ func main() {
 		opts = chromedp.WithLog(log.Printf)
 	}
 
+	h := chromedp.WithRunnerOptions(runner.Flag("headless", true))
+	//runner.Flag("disable-gpu", true))
+
 	// create chrome instance
-	c, err := chromedp.New(ctx, opts)
+	c, err := chromedp.New(ctx, opts, h)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,11 +67,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// TODO this doesn't work in headless mode
 	// wait for chrome to finish
-	err = c.Wait()
-	if err != nil {
-		log.Fatal(err)
-	}
+	//err = c.Wait()
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
 
 	err = ioutil.WriteFile(output, res, 0644)
 	if err != nil {
