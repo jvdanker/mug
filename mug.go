@@ -41,19 +41,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var opts chromedp.Option = func(c *chromedp.CDP) error {
-		return nil
-	}
-
+	opts := []chromedp.Option{chromedp.WithRunnerOptions(runner.Flag("headless", true))}
 	if verbose {
-		opts = chromedp.WithLog(log.Printf)
+		opts = append(opts, chromedp.WithLog(log.Printf))
 	}
-
-	h := chromedp.WithRunnerOptions(runner.Flag("headless", true))
-	//runner.Flag("disable-gpu", true))
 
 	// create chrome instance
-	c, err := chromedp.New(ctx, opts, h)
+	c, err := chromedp.New(ctx, opts...)
 	if err != nil {
 		log.Fatal(err)
 	}
