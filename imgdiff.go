@@ -70,13 +70,13 @@ func main() {
 func loadImage(filename string) (image.Image, error) {
 	f, err := os.Open(filename)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 	defer f.Close()
 
 	img, err := png.Decode(f)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
 	return img, nil
@@ -86,5 +86,6 @@ func diff(a, b uint32) int64 {
 	if a > b {
 		return int64(a - b)
 	}
+
 	return int64(b - a)
 }
