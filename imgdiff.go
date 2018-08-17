@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"image"
 	"image/png"
@@ -10,21 +9,16 @@ import (
 )
 
 func main() {
-	var (
-		input1 = ""
-		input2 = ""
-		usage  = false
-	)
-
-	flag.StringVar(&input1, "i1", input1, "Input image (PNG only)")
-	flag.StringVar(&input2, "i2", input2, "Image to compare to (PNG only)")
-	flag.BoolVar(&usage, "?", usage, "Display usage")
-	flag.Parse()
-
-	if input1 == "" || input2 == "" || usage {
-		flag.Usage()
+	if len(os.Args) != 3 {
+		fmt.Printf("usage\n")
+		fmt.Printf("\t%v <image1.png> <image2.png>", os.Args[0])
 		os.Exit(1)
 	}
+
+	var (
+		input1 = os.Args[1]
+		input2 = os.Args[2]
+	)
 
 	i1, err := loadImage(input1)
 	if err != nil {

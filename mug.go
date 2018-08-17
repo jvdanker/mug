@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/emulation"
@@ -34,6 +35,8 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+
+	fmt.Printf("Create snapshot of %v to %v\n", url, output)
 
 	var err error
 
