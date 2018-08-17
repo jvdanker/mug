@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"image"
 	"image/png"
@@ -9,16 +10,23 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Printf("usage\n")
-		fmt.Printf("\t%v <image1.png> <image2.png>", os.Args[0])
+	var (
+		input1    = ""
+		input2    = ""
+		threshold = 0
+	)
+
+	flag.StringVar(&input1, "i1", input1, "image 1")
+	flag.StringVar(&input2, "i2", input2, "image 2")
+	flag.IntVar(&threshold, "t", threshold, "threshold")
+	flag.Parse()
+
+	if input1 == "" || input2 == "" {
+		flag.Usage()
 		os.Exit(1)
 	}
 
-	var (
-		input1 = os.Args[1]
-		input2 = os.Args[2]
-	)
+	fmt.Printf("Comparing image %v to %v with threshold set to %v\n", input1, input2, threshold)
 
 	i1, err := loadImage(input1)
 	if err != nil {
@@ -51,7 +59,12 @@ func main() {
 	}
 
 	nPixels := (b.Max.X - b.Min.X) * (b.Max.Y - b.Min.Y)
-	fmt.Printf("Image difference: %f%%\n", float64(sum*100)/(float64(nPixels)*0xffff*3))
+	diff := float64(sum*100) / (float64(nPixels) * 0xffff * 3)
+	fmt.Printf("Image difference: %f%%\n", diff)
+
+	if diff > float64(threshold) {
+		os.Exit(1)
+	}
 }
 
 func loadImage(filename string) (image.Image, error) {
