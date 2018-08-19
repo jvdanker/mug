@@ -7,19 +7,20 @@ class App extends Component {
         super(props);
 
         this.state = {
-            urls: [],
+            urls: ['http://www.govt.nz'],
             url: ''
         };
 
         this.handleChange = this.handleChange.bind(this);
-        this.add = this.add.bind(this);
+        this.addUrl = this.addUrl.bind(this);
+        this.scanLink = this.scanLink.bind(this);
     }
 
     handleChange(event) {
         this.setState({url: event.target.value});
     }
 
-    add(event) {
+    addUrl(event) {
         event.preventDefault();
 
         const urls = this.state.urls;
@@ -30,16 +31,29 @@ class App extends Component {
         });
     }
 
+    scanLink(event) {
+        event.preventDefault();
+
+        fetch("/scan").then(res => console.log(res))
+            .catch(error => console.error('Error:', error))
+            .then(response => console.log('Success:', response));
+    }
+
     render() {
         const listItems = this.state.urls.map((url, index) =>
             <li key={index}>
-                {url}
+                <div>
+                    {url}
+                </div>
+                <div>
+                    <a href="scan-link.html" onClick={this.scanLink}>scan</a>
+                </div>
             </li>
         );
 
         return (
             <div className="App">
-                <form onSubmit={this.add}>
+                <form onSubmit={this.addUrl}>
                     <fieldset>
                         <legend>Add URL</legend>
 
