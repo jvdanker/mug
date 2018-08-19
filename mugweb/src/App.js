@@ -34,7 +34,7 @@ class App extends Component {
     scanLink(event) {
         event.preventDefault();
 
-        fetch("/scan").then(res => console.log(res))
+        fetch("http://localhost:8080/scan").then(res => console.log(res))
             .catch(error => console.error('Error:', error))
             .then(response => console.log('Success:', response));
     }
