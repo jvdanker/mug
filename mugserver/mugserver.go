@@ -9,23 +9,24 @@ import (
 func main() {
 	fmt.Println("mugserver, listening at :8080...")
 
-	http.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(r)
-
-		setupResponse(&w, r)
-		if r.Method == "OPTIONS" {
-			return
-		}
-
-		j, err := json.MarshalIndent("", "", "  ")
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Fprintf(w, fmt.Sprintf("%s", j))
-	})
-
+	http.HandleFunc("/scan", handleRequests)
 	http.ListenAndServe(":8080", nil)
+}
+
+func handleRequests(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r)
+
+	setupResponse(&w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	j, err := json.MarshalIndent("", "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
 
 func setupResponse(w *http.ResponseWriter, req *http.Request) {
