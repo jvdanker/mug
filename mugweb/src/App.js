@@ -7,13 +7,18 @@ class App extends Component {
         super(props);
 
         this.state = {
-            urls: ['http://www.govt.nz'],
+            urls: [
+                '1',
+                '2',
+                '3',
+                '4',
+                '5'
+            ],
             url: ''
         };
 
         this.handleChange = this.handleChange.bind(this);
         this.addUrl = this.addUrl.bind(this);
-        this.scanLink = this.scanLink.bind(this);
     }
 
     handleChange(event) {
@@ -31,12 +36,22 @@ class App extends Component {
         });
     }
 
-    scanLink(event) {
+    scanLink(url, index, event) {
         event.preventDefault();
 
-        fetch("http://localhost:8080/scan").then(res => console.log(res))
-            .catch(error => console.error('Error:', error))
-            .then(response => console.log('Success:', response));
+        fetch("http://localhost:8080/scan")
+            .then(res => console.log(res))
+            .catch(error => console.error('Error:', error));
+    }
+
+    deleteLink(url, index, event) {
+        event.preventDefault();
+
+        var urls = this.state.urls;
+        urls.splice(index, 1);
+        this.setState({
+            urls: urls
+        });
     }
 
     render() {
@@ -46,7 +61,8 @@ class App extends Component {
                     {url}
                 </div>
                 <div>
-                    <a href="scan-link.html" onClick={this.scanLink}>scan</a>
+                    <a href="scan-link.html" onClick={this.scanLink.bind(this, url, index)}>scan</a>
+                    <a href="delete" onClick={this.deleteLink.bind(this, url, index)}>delete</a>
                 </div>
             </li>
         );
