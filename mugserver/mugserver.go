@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jvdanker/mug/lib"
 	"net/http"
 )
 
@@ -50,6 +51,8 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+
+	lib.CreateScreenshot("http://www.govt.nz", false)
 
 	j, err := json.MarshalIndent("", "", "  ")
 	if err != nil {
