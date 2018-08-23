@@ -11,6 +11,13 @@ type Url struct {
 	Url string `json:"url"`
 }
 
+var data = []Url{
+	{Id: 1, Url: "1"},
+	{Id: 2, Url: "2"},
+	{Id: 3, Url: "3"},
+	{Id: 4, Url: "4"},
+}
+
 func main() {
 	fmt.Println("mugserver, listening at :8080...")
 
@@ -23,13 +30,6 @@ func handleGetRequests(w http.ResponseWriter, r *http.Request) {
 	setupResponse(&w, r)
 	if r.Method == "OPTIONS" {
 		return
-	}
-
-	data := []Url{
-		{Id: 1, Url: "1"},
-		{Id: 2, Url: "2"},
-		{Id: 3, Url: "3"},
-		{Id: 4, Url: "4"},
 	}
 
 	j, err := json.MarshalIndent(data, "", "  ")
