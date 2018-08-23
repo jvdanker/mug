@@ -7,18 +7,24 @@ class App extends Component {
         super(props);
 
         this.state = {
-            urls: [
-                '1',
-                '2',
-                '3',
-                '4',
-                '5'
-            ],
+            urls: [],
             url: ''
         };
 
         this.handleChange = this.handleChange.bind(this);
         this.addUrl = this.addUrl.bind(this);
+    }
+
+    componentDidMount() {
+        fetch("http://localhost:8080/list")
+            .then(res => res.json())
+            .then(res => {
+                console.log('json', JSON.stringify(res));
+                this.setState({
+                    urls: res
+                });
+            })
+            .catch(error => console.error('Error:', error));
     }
 
     handleChange(event) {
@@ -36,33 +42,39 @@ class App extends Component {
         });
     }
 
-    scanLink(url, index, event) {
+    scanLink(item, event) {
         event.preventDefault();
 
-        fetch("http://localhost:8080/scan")
+        fetch("http://localhost:8080/scan/" + item.id)
             .then(res => console.log(res))
             .catch(error => console.error('Error:', error));
     }
 
-    deleteLink(url, index, event) {
+    deleteLink(item, event) {
         event.preventDefault();
 
         var urls = this.state.urls;
-        urls.splice(index, 1);
-        this.setState({
-            urls: urls
+        var index = urls.findIndex(e => {
+            return e.id === item.id;
         });
+
+        if (index > -1) {
+            urls.splice(index, 1);
+            this.setState({
+                urls: urls
+            });
+        }
     }
 
     render() {
-        const listItems = this.state.urls.map((url, index) =>
+        const listItems = this.state.urls.map((item, index) =>
             <li key={index}>
                 <div>
-                    {url}
+                    {item.url}
                 </div>
                 <div>
-                    <a href="scan-link.html" onClick={this.scanLink.bind(this, url, index)}>scan</a>
-                    <a href="delete" onClick={this.deleteLink.bind(this, url, index)}>delete</a>
+                    <a href="scan-link.html" onClick={this.scanLink.bind(this, item)}>scan</a>
+                    <a href="delete" onClick={this.deleteLink.bind(this, item)}>delete</a>
                 </div>
             </li>
         );
