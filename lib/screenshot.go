@@ -14,7 +14,7 @@ import (
 )
 
 func CreateScreenshot(url string, verbose bool) []byte {
-	fmt.Printf("Create snapshot of %v to %v\n", url)
+	fmt.Printf("Create snapshot of %v\n", url)
 
 	var err error
 

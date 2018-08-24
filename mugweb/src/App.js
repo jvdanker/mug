@@ -1,5 +1,16 @@
 import React, {Component} from 'react';
+import styled from 'styled-components';
 import './App.css';
+
+const ImageContainer = styled.div`
+  width: 100px;
+  height: 100px;
+  overflow: hidden;
+`;
+
+const Image = styled.img`
+  width: 100px;
+`;
 
 class App extends Component {
 
@@ -19,7 +30,7 @@ class App extends Component {
         fetch("http://localhost:8080/list")
             .then(res => res.json())
             .then(res => {
-                console.log('json', JSON.stringify(res));
+                // console.log('json', JSON.stringify(res));
                 this.setState({
                     urls: res
                 });
@@ -50,6 +61,22 @@ class App extends Component {
             .catch(error => console.error('Error:', error));
     }
 
+    initLink(item, event) {
+        event.preventDefault();
+
+        fetch("http://localhost:8080/init/" + item.id)
+            .then(res => console.log(res))
+            .catch(error => console.error('Error:', error));
+    }
+
+    mergeLink(item, event) {
+        event.preventDefault();
+
+        fetch("http://localhost:8080/merge/" + item.id)
+            .then(res => console.log(res))
+            .catch(error => console.error('Error:', error));
+    }
+
     deleteLink(item, event) {
         event.preventDefault();
 
@@ -66,15 +93,48 @@ class App extends Component {
         }
     }
 
+    getLink(item, event) {
+        event.preventDefault();
+
+        fetch("http://localhost:8080/screenshot/get/" + item.id)
+            .then(res => res.json())
+            .then(res => {
+                var urls = this.state.urls;
+                var index = urls.findIndex(e => {
+                    return e.id === item.id;
+                });
+
+                if (index > -1) {
+                    urls[index].image = 'data::image/png;base64,' + res.data;
+                    this.setState({
+                        urls: urls
+                    });
+                }
+            })
+            .catch(error => console.error('Error:', error));
+    }
+
     render() {
         const listItems = this.state.urls.map((item, index) =>
             <li key={index}>
+                <ImageContainer>
+                    <Image src={item.reference} />
+                </ImageContainer>
+                <ImageContainer>
+                    <Image src={item.current} />
+                </ImageContainer>
+                <ImageContainer>
+                    <Image src={item.overlay} />
+                </ImageContainer>
                 <div>
                     {item.url}
                 </div>
                 <div>
-                    <a href="scan-link.html" onClick={this.scanLink.bind(this, item)}>scan</a>
-                    <a href="delete" onClick={this.deleteLink.bind(this, item)}>delete</a>
+                    <a href="scan-link.html" onClick={this.scanLink.bind(this, item)}>scan</a>&nbsp;
+                    <a href="delete" onClick={this.deleteLink.bind(this, item)}>delete</a>&nbsp;
+                    <a href="get" onClick={this.getLink.bind(this, item)}>get</a>&nbsp;
+                    <a href="init" onClick={this.initLink.bind(this, item)}>init</a>&nbsp;
+                    <a href="merge" onClick={this.mergeLink.bind(this, item)}>merge</a>&nbsp;
                 </div>
             </li>
         );
