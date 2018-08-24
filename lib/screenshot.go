@@ -22,7 +22,12 @@ func CreateScreenshot(url string, verbose bool) []byte {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	opts := []chromedp.Option{chromedp.WithRunnerOptions(runner.Flag("headless", true))}
+	opts := []chromedp.Option{chromedp.WithRunnerOptions(
+		runner.Flag("headless", false),
+		runner.Flag("incognito", true),
+		runner.Flag("window-size", "800,600"),
+		runner.Flag("hide-scrollbars", true),
+	)}
 	if verbose {
 		opts = append(opts, chromedp.WithLog(log.Printf))
 	}

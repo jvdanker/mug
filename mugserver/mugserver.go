@@ -40,6 +40,7 @@ func main() {
 	http.HandleFunc("/init/", handleInitRequests)
 	http.HandleFunc("/merge/", handleMergeRequests)
 	http.HandleFunc("/screenshot/get/", handleGetScreenshot)
+	http.HandleFunc("/url/add", handleAddUrl)
 
 	go func(h *http.Server) {
 		fmt.Println("Press ctrl+c to interrupt...")
@@ -142,7 +143,7 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 
 	for i, item := range data {
 		if item.Id == id {
-			b := lib.CreateScreenshot(item.Url, false)
+			b := lib.CreateScreenshot(item.Url, true)
 
 			img, _, _ := image.Decode(bytes.NewReader(b))
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
@@ -290,6 +291,57 @@ func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
 
+func handleAddUrl(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r)
+
+	setupResponse(&w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println(string(body))
+	var t struct {
+		Url string `json:"url"`
+	}
+
+	err = json.Unmarshal(body, &t)
+	if err != nil {
+		panic(err)
+	}
+	log.Println(t.Url)
+
+	data, err := read()
+	if err != nil {
+		panic(err)
+	}
+
+	max := 0
+	for _, item := range data {
+		if item.Id > max {
+			max = item.Id
+		}
+	}
+
+	data = append(data, Url{
+		Url: t.Url,
+		Id:  max + 1,
+	})
+
+	saveData(data)
+
+	j, err := json.MarshalIndent("", "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+}
+
 func saveData(data []Url) {
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
@@ -305,11 +357,11 @@ func saveData(data []Url) {
 }
 
 func read() ([]Url, error) {
-	var d []Url
+	d := []Url{}
 
 	f, err := os.Open("data.json")
 	if err != nil {
-		return d, err
+		return d, nil
 	}
 	defer f.Close()
 

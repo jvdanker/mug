@@ -51,6 +51,16 @@ class App extends Component {
         this.setState({
             urls: urls
         });
+
+        fetch("http://localhost:8080/url/add", {
+            method: 'POST',
+            body: JSON.stringify({url: this.state.url}),
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }).then(res => res.json())
+            .then(response => console.log('Success:', JSON.stringify(response)))
+            .catch(error => console.error('Error:', error));
     }
 
     scanLink(item, event) {
