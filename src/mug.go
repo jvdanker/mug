@@ -44,7 +44,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	opts := []chromedp.Option{chromedp.WithRunnerOptions(runner.Flag("headless", true))}
+	opts := []chromedp.Option{chromedp.WithRunnerOptions(runner.Flag("headless", false))}
 	if verbose {
 		opts = append(opts, chromedp.WithLog(log.Printf))
 	}

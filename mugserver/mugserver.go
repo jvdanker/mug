@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"time"
 )
 
 type Url struct {
@@ -98,13 +99,13 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 
 	for i, item := range data {
 		if item.Id == id {
-			b := lib.CreateScreenshot(item.Url, false)
+			b, err := lib.Run(5*time.Second, item.Url)
 
 			img, _, _ := image.Decode(bytes.NewReader(b))
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
 
 			buf := new(bytes.Buffer)
-			err := png.Encode(buf, image2)
+			err = png.Encode(buf, image2)
 			if err != nil {
 				panic(err)
 			}
@@ -143,13 +144,13 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 
 	for i, item := range data {
 		if item.Id == id {
-			b := lib.CreateScreenshot(item.Url, true)
+			b, err := lib.Run(5*time.Second, item.Url)
 
 			img, _, _ := image.Decode(bytes.NewReader(b))
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
 
 			buf := new(bytes.Buffer)
-			err := png.Encode(buf, image2)
+			err = png.Encode(buf, image2)
 			if err != nil {
 				panic(err)
 			}
