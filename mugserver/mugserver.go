@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"time"
@@ -40,6 +41,7 @@ func main() {
 	http.HandleFunc("/scan/", handleScanRequests)
 	http.HandleFunc("/init/", handleInitRequests)
 	http.HandleFunc("/merge/", handleMergeRequests)
+	http.HandleFunc("/diff/", handleDiffRequest)
 	http.HandleFunc("/screenshot/get/", handleGetScreenshot)
 	http.HandleFunc("/url/add", handleAddUrl)
 
@@ -100,8 +102,15 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 	for i, item := range data {
 		if item.Id == id {
 			b, err := lib.Run(5*time.Second, item.Url)
+			if err != nil {
+				panic(err)
+			}
 
-			img, _, _ := image.Decode(bytes.NewReader(b))
+			img, _, err := image.Decode(bytes.NewReader(b))
+			if err != nil {
+				panic(err)
+			}
+
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
 
 			buf := new(bytes.Buffer)
@@ -146,7 +155,11 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 		if item.Id == id {
 			b, err := lib.Run(5*time.Second, item.Url)
 
-			img, _, _ := image.Decode(bytes.NewReader(b))
+			img, _, err := image.Decode(bytes.NewReader(b))
+			if err != nil {
+				panic(err)
+			}
+
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
 
 			buf := new(bytes.Buffer)
@@ -229,6 +242,75 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 			outfile.Close()
 
 			data[i].Overlay = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
+
+			break
+		}
+	}
+	fmt.Println("done")
+
+	saveData(data)
+
+	j, err := json.MarshalIndent("", "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+}
+
+func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r)
+	id, err := strconv.Atoi(r.URL.Path[len("/diff/"):])
+	fmt.Println(id)
+
+	setupResponse(&w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	data, err := read()
+	if err != nil {
+		panic(err)
+	}
+
+	for _, item := range data {
+		if item.Id == id {
+			str1 := item.Reference[len("data::image/png;base64,"):]
+			b1, err := base64.StdEncoding.DecodeString(str1)
+			if err != nil {
+				panic(err)
+			}
+
+			err = ioutil.WriteFile("i1.png", b1, 0644)
+			if err != nil {
+				panic(err)
+			}
+
+			str2 := item.Reference[len("data::image/png;base64,"):]
+			b2, err := base64.StdEncoding.DecodeString(str2)
+			if err != nil {
+				panic(err)
+			}
+
+			err = ioutil.WriteFile("i2.png", b2, 0644)
+			if err != nil {
+				panic(err)
+			}
+
+			//cmd := exec.Command("/bin/bash", "v")
+			cmd := exec.Command("/Users/juan/workspaces/go/src/github.com/jvdanker/mug/pdiff/perceptualdiff",
+				"/Users/juan/workspaces/go/src/github.com/jvdanker/mug/i1.png",
+				"/Users/juan/workspaces/go/src/github.com/jvdanker/mug/datai2.png",
+				"-verbose")
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				fmt.Println(fmt.Sprint(err) + ": " + string(output))
+				return
+			} else {
+				fmt.Println(string(output))
+			}
+			fmt.Println("state = ", cmd.ProcessState)
+			fmt.Println("state = ", cmd.ProcessState.Success())
 
 			break
 		}
@@ -328,10 +410,17 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data = append(data, Url{
-		Url: t.Url,
-		Id:  max + 1,
-	})
+	_, thumb, err := createScreenshot(t.Url)
+	if err != nil {
+		panic(err)
+	}
+
+	u := Url{
+		Url:       t.Url,
+		Id:        max + 1,
+		Reference: thumb,
+	}
+	data = append(data, u)
 
 	saveData(data)
 
@@ -341,6 +430,26 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+}
+
+func createScreenshot(url string) (string, string, error) {
+	b, err := lib.Run(5*time.Second, url)
+
+	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return "", "", err
+	}
+
+	image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
+
+	buf := new(bytes.Buffer)
+	err = png.Encode(buf, image2)
+	if err != nil {
+		return "", "", err
+	}
+	b2 := buf.Bytes()
+
+	return "", "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2), nil
 }
 
 func saveData(data []Url) {

@@ -19,7 +19,7 @@ class App extends Component {
 
         this.state = {
             urls: [],
-            url: ''
+            url: 'https://www.nu.nl'
         };
 
         this.handleChange = this.handleChange.bind(this);
@@ -87,6 +87,14 @@ class App extends Component {
             .catch(error => console.error('Error:', error));
     }
 
+    diffLink(item, event) {
+        event.preventDefault();
+
+        fetch("http://localhost:8080/diff/" + item.id)
+            .then(res => console.log(res))
+            .catch(error => console.error('Error:', error));
+    }
+
     deleteLink(item, event) {
         event.preventDefault();
 
@@ -127,24 +135,27 @@ class App extends Component {
     render() {
         const listItems = this.state.urls.map((item, index) =>
             <li key={index}>
-                <ImageContainer>
-                    <Image src={item.reference} />
-                </ImageContainer>
-                <ImageContainer>
-                    <Image src={item.current} />
-                </ImageContainer>
-                <ImageContainer>
-                    <Image src={item.overlay} />
-                </ImageContainer>
                 <div>
-                    {item.url}
-                </div>
-                <div>
-                    <a href="scan-link.html" onClick={this.scanLink.bind(this, item)}>scan</a>&nbsp;
-                    <a href="delete" onClick={this.deleteLink.bind(this, item)}>delete</a>&nbsp;
-                    <a href="get" onClick={this.getLink.bind(this, item)}>get</a>&nbsp;
-                    <a href="init" onClick={this.initLink.bind(this, item)}>init</a>&nbsp;
-                    <a href="merge" onClick={this.mergeLink.bind(this, item)}>merge</a>&nbsp;
+                    <ImageContainer>
+                        <Image src={item.reference} />
+                    </ImageContainer>
+                    <ImageContainer>
+                        <Image src={item.current} />
+                    </ImageContainer>
+                    <ImageContainer>
+                        <Image src={item.overlay} />
+                    </ImageContainer>
+                    <div>
+                        {item.url}
+                    </div>
+                    <div>
+                        <a href="scan-link.html" onClick={this.scanLink.bind(this, item)}>scan</a>&nbsp;
+                        <a href="delete" onClick={this.deleteLink.bind(this, item)}>delete</a>&nbsp;
+                        <a href="get" onClick={this.getLink.bind(this, item)}>get</a>&nbsp;
+                        <a href="init" onClick={this.initLink.bind(this, item)}>init</a>&nbsp;
+                        <a href="merge" onClick={this.mergeLink.bind(this, item)}>merge</a>&nbsp;
+                        <a href="diff" onClick={this.diffLink.bind(this, item)}>diff</a>&nbsp;
+                    </div>
                 </div>
             </li>
         );
