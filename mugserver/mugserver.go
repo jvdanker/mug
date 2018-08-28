@@ -43,7 +43,9 @@ func main() {
 	http.HandleFunc("/merge/", handleMergeRequests)
 	http.HandleFunc("/diff/", handleDiffRequest)
 	http.HandleFunc("/screenshot/get/", handleGetScreenshot)
+	http.HandleFunc("/screenshot/reference/get/", handleGetReferenceScreenshot)
 	http.HandleFunc("/url/add", handleAddUrl)
+	http.HandleFunc("/url/delete/", handleDeleteUrl)
 
 	go func(h *http.Server) {
 		fmt.Println("Press ctrl+c to interrupt...")
@@ -66,8 +68,8 @@ func handleShutdown(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListRequests(w http.ResponseWriter, r *http.Request) {
-	setupResponse(&w, r)
 	if r.Method == "OPTIONS" {
+		setupResponse(w, r)
 		return
 	}
 
@@ -76,12 +78,13 @@ func handleListRequests(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	j, err := json.MarshalIndent(d, "", "  ")
+	j, err := json.Marshal(d)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	setupResponse(w, r)
+	w.Write(j)
 }
 
 func handleScanRequests(w http.ResponseWriter, r *http.Request) {
@@ -89,8 +92,8 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.URL.Path[len("/scan/"):])
 	fmt.Println(id)
 
-	setupResponse(&w, r)
 	if r.Method == "OPTIONS" {
+		setupResponse(w, r)
 		return
 	}
 
@@ -128,12 +131,13 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 
 	saveData(data)
 
-	j, err := json.MarshalIndent("", "", "  ")
+	j, err := json.Marshal("")
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	setupResponse(w, r)
+	w.Write(j)
 }
 
 func handleInitRequests(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +145,7 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.URL.Path[len("/init/"):])
 	fmt.Println(id)
 
-	setupResponse(&w, r)
+	setupResponse(w, r)
 	if r.Method == "OPTIONS" {
 		return
 	}
@@ -190,7 +194,7 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.URL.Path[len("/merge/"):])
 	fmt.Println(id)
 
-	setupResponse(&w, r)
+	setupResponse(w, r)
 	if r.Method == "OPTIONS" {
 		return
 	}
@@ -219,7 +223,7 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 			pixList2 := img2.(*image.RGBA).Pix
 			for i := 0; i < len(pixList1); i += 4 {
 				a1 := float32(pixList1[i+3]) / float32(255)
-				a2 := float32(pixList2[i+3]) / 255
+				a2 := float32(pixList2[i+3]) / float32(255)
 
 				img3.Pix[i] = uint8((float32(pixList1[i]) * a1) + (float32(pixList2[i]) * a2))
 				img3.Pix[i+1] = uint8((float32(pixList1[i+1]) * a1) + (float32(pixList2[i+1]) * a2))
@@ -242,7 +246,6 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 			outfile.Close()
 
 			data[i].Overlay = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
-
 			break
 		}
 	}
@@ -263,7 +266,7 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.URL.Path[len("/diff/"):])
 	fmt.Println(id)
 
-	setupResponse(&w, r)
+	setupResponse(w, r)
 	if r.Method == "OPTIONS" {
 		return
 	}
@@ -327,24 +330,12 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
 
-func decodeImage(data string) (image.Image, error) {
-	str := data[len("data::image/png;base64,"):]
-	b, err := base64.StdEncoding.DecodeString(str)
-	if err != nil {
-		panic(err)
-	}
-
-	img, _, err := image.Decode(bytes.NewReader(b))
-
-	return img, err
-}
-
 func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(r)
 	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/get/"):])
 	fmt.Println(id)
 
-	setupResponse(&w, r)
+	setupResponse(w, r)
 	if r.Method == "OPTIONS" {
 		return
 	}
@@ -360,10 +351,18 @@ func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
+	found := false
 	for _, item := range data {
 		if item.Id == id {
 			response.Data = item.Current
+			found = true
+			break
 		}
+	}
+
+	if !found {
+		w.WriteHeader(http.StatusNotFound)
+		return
 	}
 
 	j, err := json.MarshalIndent(response, "", "  ")
@@ -374,11 +373,57 @@ func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
 
+func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r)
+	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/reference/get/"):])
+	fmt.Println(id)
+
+	if r.Method == "OPTIONS" {
+		setupResponse(w, r)
+		return
+	}
+
+	type ScreenshotResponse struct {
+		Data string `json:"data"`
+	}
+
+	response := ScreenshotResponse{}
+
+	data, err := read()
+	if err != nil {
+		panic(err)
+	}
+
+	found := false
+	for _, item := range data {
+		if item.Id == id {
+			response.Data = item.Reference
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		setupResponse(w, r)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	j, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	setupResponse(w, r)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+}
+
 func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(r)
 
-	setupResponse(&w, r)
 	if r.Method == "OPTIONS" {
+		setupResponse(w, r)
 		return
 	}
 
@@ -410,21 +455,66 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, thumb, err := createScreenshot(t.Url)
-	if err != nil {
-		panic(err)
-	}
+	//_, thumb, err := createScreenshot(t.Url)
+	//if err != nil {
+	//	panic(err)
+	//}
 
 	u := Url{
-		Url:       t.Url,
-		Id:        max + 1,
-		Reference: thumb,
+		Url: t.Url,
+		Id:  max + 1,
+		//Reference: thumb,
 	}
 	data = append(data, u)
 
 	saveData(data)
 
-	j, err := json.MarshalIndent("", "", "  ")
+	type Response struct {
+		Id int `json:"id"`
+	}
+
+	response := Response{Id: max + 1}
+	j, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	setupResponse(w, r)
+	w.Write(j)
+}
+
+func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r)
+	id, err := strconv.Atoi(r.URL.Path[len("/url/delete/"):])
+	fmt.Println(id)
+
+	setupResponse(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	type ScreenshotResponse struct {
+		Data string `json:"data"`
+	}
+
+	response := ScreenshotResponse{}
+
+	data, err := read()
+	if err != nil {
+		panic(err)
+	}
+
+	for i, item := range data {
+		if item.Id == id {
+			data = append(data[:i], data[i+1:]...)
+			break
+		}
+	}
+
+	saveData(data)
+
+	j, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		panic(err)
 	}
@@ -482,8 +572,21 @@ func read() ([]Url, error) {
 	return d, nil
 }
 
-func setupResponse(w *http.ResponseWriter, req *http.Request) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+func decodeImage(data string) (image.Image, error) {
+	str := data[len("data::image/png;base64,"):]
+	b, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		panic(err)
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(b))
+
+	return img, err
+}
+
+func setupResponse(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	w.Header().Set("Content-Type", "application/json")
 }

@@ -22,6 +22,8 @@ class App extends Component {
             url: 'https://www.nu.nl'
         };
 
+        this.timerId = -1;
+
         this.handleChange = this.handleChange.bind(this);
         this.addUrl = this.addUrl.bind(this);
     }
@@ -36,6 +38,12 @@ class App extends Component {
                 });
             })
             .catch(error => console.error('Error:', error));
+    }
+
+    componentWillUnmount() {
+        if (this.timerId !== -1) {
+            clearInterval(this.timerId);
+        }
     }
 
     handleChange(event) {
@@ -59,7 +67,18 @@ class App extends Component {
                 'Content-Type': 'application/json'
             }
         }).then(res => res.json())
-            .then(response => console.log('Success:', JSON.stringify(response)))
+            .then(response => {
+                console.log('Success:', JSON.stringify(response));
+
+                console.log(this.timerId);
+                this.timerId = setInterval(
+                    () => {
+                        console.log('tick');
+                        this.getReference(response.id);
+                    }, 5000
+                );
+
+            })
             .catch(error => console.error('Error:', error));
     }
 
@@ -104,6 +123,11 @@ class App extends Component {
         });
 
         if (index > -1) {
+            fetch("http://localhost:8080/url/delete/" + item.id)
+                .then(res => console.log(res))
+                .catch(error => console.error('Error:', error));
+
+
             urls.splice(index, 1);
             this.setState({
                 urls: urls
@@ -130,6 +154,31 @@ class App extends Component {
                 }
             })
             .catch(error => console.error('Error:', error));
+    }
+
+    getReference(item, event) {
+        if (event) {
+            event.preventDefault();
+        }
+
+        fetch("http://localhost:8080/screenshot/reference/get/" + item.id)
+            .then(res => res.json())
+            .then(res => {
+                var urls = this.state.urls;
+                var index = urls.findIndex(e => {
+                    return e.id === item.id;
+                });
+
+                if (index > -1) {
+                    urls[index].image = 'data::image/png;base64,' + res.data;
+                    this.setState({
+                        urls: urls
+                    });
+                }
+
+                clearInterval(this.timerId);
+                this.timerId = -1;
+            }).catch(error => console.error('Error:', error));
     }
 
     render() {
