@@ -19,7 +19,7 @@ class App extends Component {
 
         this.state = {
             urls: [],
-            url: 'https://www.nu.nl'
+            url: 'https://www.govt.nz/'
         };
 
         this.timerId = -1;
@@ -91,7 +91,23 @@ class App extends Component {
         event.preventDefault();
 
         fetch("http://localhost:8080/scan/" + item.id)
-            .then(res => console.log(res))
+            .then(res => res.json())
+            .then(res => {
+                console.log(res);
+
+                var urls = this.state.urls;
+                var index = urls.findIndex(e => {
+                    return e.id === item.id;
+                });
+
+                if (index > -1) {
+                    urls[index].current = res.data;
+                    this.setState({
+                        urls: urls
+                    });
+                }
+
+            })
             .catch(error => console.error('Error:', error));
     }
 
@@ -115,7 +131,22 @@ class App extends Component {
         event.preventDefault();
 
         fetch("http://localhost:8080/pdiff/" + item.id)
-            .then(res => console.log(res))
+            .then(res => res.json())
+            .then(res => {
+                console.log(res);
+
+                var urls = this.state.urls;
+                var index = urls.findIndex(e => {
+                    return e.id === item.id;
+                });
+
+                if (index > -1) {
+                    urls[index].output = res.output;
+                    this.setState({
+                        urls: urls
+                    });
+                }
+            })
             .catch(error => console.error('Error:', error));
     }
 
@@ -206,9 +237,11 @@ class App extends Component {
                     <ImageContainer>
                         <Image src={item.current} />
                     </ImageContainer>
-                    <ImageContainer>
-                        <Image src={item.overlay} />
-                    </ImageContainer>
+                    <div>
+                        <pre>
+                            {item.output}
+                        </pre>
+                    </div>
                     <div>
                         {item.url}
                     </div>

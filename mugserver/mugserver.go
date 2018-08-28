@@ -33,6 +33,9 @@ type Url struct {
 var stop = make(chan os.Signal, 1)
 
 func main() {
+	// start chrome
+	// /opt/google/chrome/chrome --remote-debugging-port=9222 --user-data-dir=remote-profile
+
 	signal.Notify(stop, os.Interrupt)
 	logger := log.New(os.Stdout, "", 0)
 
@@ -107,6 +110,12 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type ScreenshotResponse struct {
+		Data string `json:"data"`
+	}
+
+	response := ScreenshotResponse{}
+
 	for i, item := range data {
 		if item.Id == id {
 			b, err := lib.Run(5*time.Second, item.Url)
@@ -132,6 +141,8 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 			b2 := buf.Bytes()
 
 			data[i].Current = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
+			response = ScreenshotResponse{Data: data[i].Current}
+
 			break
 		}
 	}
@@ -139,14 +150,15 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 
 	saveData(data)
 
-	j, err := json.Marshal("")
+	j, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	setupResponse(w, r)
-	w.Write(j)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
 
 func handleInitRequests(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +383,8 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	output := ""
+
 	for _, item := range data {
 		if item.Id == id {
 			str1 := item.Reference[len("data::image/png;base64,"):]
@@ -399,21 +413,29 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			dir, err := os.Getwd()
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(dir)
+
 			cmd := exec.Command("docker",
 				"run",
 				"--rm",
 				"-v",
-				"/Users/juan/workspaces/go/src/github.com/jvdanker/mug:/images",
+				dir+":/images",
 				"jvdanker/pdiff",
 				"-verbose",
 				"i1.png",
 				"i2.png")
-			output, err := cmd.CombinedOutput()
+
+			temp, err := cmd.CombinedOutput()
 			if err != nil {
-				fmt.Println(fmt.Sprint(err) + ": " + string(output))
+				fmt.Println(fmt.Sprint(err) + ": " + string(temp))
 				return
 			} else {
-				fmt.Println(string(output))
+				output = string(temp)
+				fmt.Println(output)
 			}
 			fmt.Println("state = ", cmd.ProcessState)
 			fmt.Println("state = ", cmd.ProcessState.Success())
@@ -423,7 +445,15 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Println("done")
 
-	j, err := json.MarshalIndent("", "", "  ")
+	type Response struct {
+		Output string `json:"output"`
+	}
+
+	response := Response{
+		Output: string(output),
+	}
+
+	j, err := json.Marshal(response)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -648,6 +678,9 @@ func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
 
 func createScreenshot(url string) (string, string, error) {
 	b, err := lib.Run(5*time.Second, url)
+	if err != nil {
+		return "", "", err
+	}
 
 	img, _, err := image.Decode(bytes.NewReader(b))
 	if err != nil {

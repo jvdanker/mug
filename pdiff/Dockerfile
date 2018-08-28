@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ADD src/* /pdiff/
 
-RUN cd; cd /pdiff; cmake .; make ; ls -lrtR /pdiff
+RUN cd; cd /pdiff; cmake .; make
 
 WORKDIR /images
 
