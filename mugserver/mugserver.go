@@ -43,6 +43,7 @@ func main() {
 	http.HandleFunc("/init/", handleInitRequests)
 	http.HandleFunc("/merge/", handleMergeRequests)
 	http.HandleFunc("/diff/", handleDiffRequest)
+	http.HandleFunc("/pdiff/", handlePDiffRequest)
 	http.HandleFunc("/screenshot/get/", handleGetScreenshot)
 	http.HandleFunc("/screenshot/reference/get/", handleGetReferenceScreenshot)
 	http.HandleFunc("/url/add", handleAddUrl)
@@ -344,6 +345,83 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("done")
 
 	saveData(data)
+
+	j, err := json.MarshalIndent("", "", "  ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+}
+
+func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r)
+	id, err := strconv.Atoi(r.URL.Path[len("/pdiff/"):])
+	fmt.Println(id)
+
+	setupResponse(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	data, err := read()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for _, item := range data {
+		if item.Id == id {
+			str1 := item.Reference[len("data::image/png;base64,"):]
+			b1, err := base64.StdEncoding.DecodeString(str1)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			err = ioutil.WriteFile("i1.png", b1, 0644)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			str2 := item.Reference[len("data::image/png;base64,"):]
+			b2, err := base64.StdEncoding.DecodeString(str2)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			err = ioutil.WriteFile("i2.png", b2, 0644)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			cmd := exec.Command("docker",
+				"run",
+				"--rm",
+				"-v",
+				"/Users/juan/workspaces/go/src/github.com/jvdanker/mug:/images",
+				"jvdanker/pdiff",
+				"-verbose",
+				"i1.png",
+				"i2.png")
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				fmt.Println(fmt.Sprint(err) + ": " + string(output))
+				return
+			} else {
+				fmt.Println(string(output))
+			}
+			fmt.Println("state = ", cmd.ProcessState)
+			fmt.Println("state = ", cmd.ProcessState.Success())
+
+			break
+		}
+	}
+	fmt.Println("done")
 
 	j, err := json.MarshalIndent("", "", "  ")
 	if err != nil {

@@ -114,7 +114,7 @@ class App extends Component {
     diffLink(item, event) {
         event.preventDefault();
 
-        fetch("http://localhost:8080/diff/" + item.id)
+        fetch("http://localhost:8080/pdiff/" + item.id)
             .then(res => console.log(res))
             .catch(error => console.error('Error:', error));
     }
