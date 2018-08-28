@@ -54,11 +54,7 @@ class App extends Component {
         event.preventDefault();
 
         const urls = this.state.urls;
-        urls.push(this.state.url);
 
-        this.setState({
-            urls: urls
-        });
 
         fetch("http://localhost:8080/url/add", {
             method: 'POST',
@@ -68,10 +64,19 @@ class App extends Component {
             }
         }).then(res => res.json())
             .then(response => {
-                console.log('Success:', JSON.stringify(response));
+                console.log('Success:', response);
+
+                urls.push({
+                    id: response.id,
+                    url: this.state.url
+                });
+
+                this.setState({
+                    urls: urls
+                });
 
                 console.log(this.timerId);
-                this.timerId = setInterval(
+                this.timerId = setTimeout(
                     () => {
                         console.log('tick');
                         this.getReference(response.id);
@@ -147,7 +152,7 @@ class App extends Component {
                 });
 
                 if (index > -1) {
-                    urls[index].image = 'data::image/png;base64,' + res.data;
+                    urls[index].image = res.data;
                     this.setState({
                         urls: urls
                     });
@@ -156,21 +161,23 @@ class App extends Component {
             .catch(error => console.error('Error:', error));
     }
 
-    getReference(item, event) {
+    getReference(id, event) {
         if (event) {
             event.preventDefault();
         }
 
-        fetch("http://localhost:8080/screenshot/reference/get/" + item.id)
+        fetch("http://localhost:8080/screenshot/reference/get/" + id)
             .then(res => res.json())
             .then(res => {
+                console.log(res);
+
                 var urls = this.state.urls;
                 var index = urls.findIndex(e => {
-                    return e.id === item.id;
+                    return e.id === id;
                 });
 
                 if (index > -1) {
-                    urls[index].image = 'data::image/png;base64,' + res.data;
+                    urls[index].reference = res.data;
                     this.setState({
                         urls: urls
                     });
@@ -178,7 +185,15 @@ class App extends Component {
 
                 clearInterval(this.timerId);
                 this.timerId = -1;
-            }).catch(error => console.error('Error:', error));
+            }).catch(error => {
+                console.error('Error:', error);
+
+                this.timerId = setTimeout(
+                    () => {
+                        console.log('tick');
+                        this.getReference(id);
+                    }, 5000);
+            });
     }
 
     render() {

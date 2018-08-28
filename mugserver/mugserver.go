@@ -14,6 +14,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -75,12 +76,14 @@ func handleListRequests(w http.ResponseWriter, r *http.Request) {
 
 	d, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	j, err := json.Marshal(d)
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	setupResponse(w, r)
@@ -99,19 +102,22 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	for i, item := range data {
 		if item.Id == id {
 			b, err := lib.Run(5*time.Second, item.Url)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			img, _, err := image.Decode(bytes.NewReader(b))
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
@@ -119,7 +125,8 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			err = png.Encode(buf, image2)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			b2 := buf.Bytes()
 
@@ -133,7 +140,8 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 
 	j, err := json.Marshal("")
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	setupResponse(w, r)
@@ -152,7 +160,8 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	for i, item := range data {
@@ -161,7 +170,8 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 
 			img, _, err := image.Decode(bytes.NewReader(b))
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
@@ -169,7 +179,8 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			err = png.Encode(buf, image2)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			b2 := buf.Bytes()
 
@@ -183,7 +194,8 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 
 	j, err := json.MarshalIndent("", "", "  ")
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
@@ -201,19 +213,22 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	for i, item := range data {
 		if item.Id == id {
 			img1, err := decodeImage(item.Reference)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			img2, err := decodeImage(item.Current)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			b1 := img1.Bounds()
@@ -234,13 +249,15 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			err = png.Encode(buf, img3)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			b2 := buf.Bytes()
 
 			outfile, err := os.Create("image.png")
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			png.Encode(outfile, img3)
 			outfile.Close()
@@ -255,7 +272,8 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 
 	j, err := json.MarshalIndent("", "", "  ")
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
@@ -273,7 +291,8 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	for _, item := range data {
@@ -281,23 +300,27 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 			str1 := item.Reference[len("data::image/png;base64,"):]
 			b1, err := base64.StdEncoding.DecodeString(str1)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			err = ioutil.WriteFile("i1.png", b1, 0644)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			str2 := item.Reference[len("data::image/png;base64,"):]
 			b2, err := base64.StdEncoding.DecodeString(str2)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			err = ioutil.WriteFile("i2.png", b2, 0644)
 			if err != nil {
-				panic(err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			//cmd := exec.Command("/bin/bash", "v")
@@ -324,7 +347,8 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 
 	j, err := json.MarshalIndent("", "", "  ")
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
@@ -348,7 +372,8 @@ func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	found := false
@@ -367,7 +392,8 @@ func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	j, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
@@ -391,19 +417,34 @@ func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	found := false
-	for _, item := range data {
+	index := -1
+	var found Url
+	for i, item := range data {
 		if item.Id == id {
 			response.Data = item.Reference
-			found = true
+			index = i
+			found = data[i]
 			break
 		}
 	}
 
-	if !found {
+	if index != -1 && found.Reference == "" {
+		_, thumb, err := createScreenshot(found.Url)
+		if err != nil {
+			panic(err)
+		}
+
+		data[index].Reference = thumb
+		saveData(data)
+
+		response.Data = thumb
+	}
+
+	if index == -1 || response.Data == "" {
 		setupResponse(w, r)
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -411,7 +452,8 @@ func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	j, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	setupResponse(w, r)
@@ -420,7 +462,8 @@ func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAddUrl(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+	req, _ := httputil.DumpRequest(r, true)
+	fmt.Printf("%s\n", string(req))
 
 	if r.Method == "OPTIONS" {
 		setupResponse(w, r)
@@ -429,7 +472,8 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	log.Println(string(body))
@@ -439,13 +483,15 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(body, &t)
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	log.Println(t.Url)
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	max := 0
@@ -456,9 +502,6 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//_, thumb, err := createScreenshot(t.Url)
-	//if err != nil {
-	//	panic(err)
-	//}
 
 	u := Url{
 		Url: t.Url,
@@ -481,7 +524,8 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setupResponse(w, r)
-	w.Write(j)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
 
 func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
@@ -502,7 +546,8 @@ func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	for i, item := range data {
@@ -516,7 +561,8 @@ func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
 
 	j, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
-		panic(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
@@ -580,6 +626,9 @@ func decodeImage(data string) (image.Image, error) {
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		panic(err)
+	}
 
 	return img, err
 }
@@ -587,6 +636,6 @@ func decodeImage(data string) (image.Image, error) {
 func setupResponse(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding")
 	w.Header().Set("Content-Type", "application/json")
 }
