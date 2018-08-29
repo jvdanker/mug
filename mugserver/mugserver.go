@@ -62,6 +62,27 @@ func main() {
 		logger.Println("Server gracefully stopped")
 	}(h)
 
+	// start chrome
+	go func() {
+		cmd := exec.Command("/opt/google/chrome/chrome",
+			"--remote-debugging-port=9222",
+			"--disable-extensions",
+			"--disable-default-apps",
+			"--disable-sync",
+			"--hide-scrollbars",
+			"--incognito",
+			//"--kiosk",
+			"--window-size=800,600",
+			"--user-data-dir=remote-profile")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Println(fmt.Sprint(err) + ": " + string(output))
+			return
+		} else {
+			fmt.Println(string(output))
+		}
+	}()
+
 	logger.Printf("Listening on http://0.0.0.0:8080\n")
 	if err := h.ListenAndServe(); err != nil {
 		logger.Fatal(err)
@@ -336,7 +357,7 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			//cmd := exec.Command("/bin/bash", "v")
+			// /opt/google/chrome/chrome --remote-debugging-port=9222 --user-data-dir=remote-profile
 			cmd := exec.Command("/Users/juan/workspaces/go/src/github.com/jvdanker/mug/pdiff/perceptualdiff",
 				"/Users/juan/workspaces/go/src/github.com/jvdanker/mug/i1.png",
 				"/Users/juan/workspaces/go/src/github.com/jvdanker/mug/datai2.png",
@@ -372,8 +393,8 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.URL.Path[len("/pdiff/"):])
 	fmt.Println(id)
 
-	setupResponse(w, r)
 	if r.Method == "OPTIONS" {
+		setupResponse(w, r)
 		return
 	}
 
@@ -384,9 +405,15 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	output := ""
+	status := true
 
 	for _, item := range data {
 		if item.Id == id {
+			if item.Reference == "" || item.Current == "" {
+				http.Error(w, "Missing reference or current image", http.StatusInternalServerError)
+				return
+			}
+
 			str1 := item.Reference[len("data::image/png;base64,"):]
 			b1, err := base64.StdEncoding.DecodeString(str1)
 			if err != nil {
@@ -400,7 +427,7 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			str2 := item.Reference[len("data::image/png;base64,"):]
+			str2 := item.Current[len("data::image/png;base64,"):]
 			b2, err := base64.StdEncoding.DecodeString(str2)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -417,7 +444,6 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println(dir)
 
 			cmd := exec.Command("docker",
 				"run",
@@ -431,14 +457,12 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 
 			temp, err := cmd.CombinedOutput()
 			if err != nil {
-				fmt.Println(fmt.Sprint(err) + ": " + string(temp))
-				return
-			} else {
+				status =  cmd.ProcessState.Success()
 				output = string(temp)
-				fmt.Println(output)
+			} else {
+				status =  cmd.ProcessState.Success()
+				output = string(temp)
 			}
-			fmt.Println("state = ", cmd.ProcessState)
-			fmt.Println("state = ", cmd.ProcessState.Success())
 
 			break
 		}
@@ -447,10 +471,12 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 
 	type Response struct {
 		Output string `json:"output"`
+		Status bool `json:"status"`
 	}
 
 	response := Response{
-		Output: string(output),
+		Output: output,
+		Status: status,
 	}
 
 	j, err := json.Marshal(response)
@@ -459,6 +485,8 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setupResponse(w, r)
+	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
 
