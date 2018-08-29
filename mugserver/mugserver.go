@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,20 @@ type Url struct {
 }
 
 var stop = make(chan os.Signal, 1)
+
+type WorkType int
+
+const (
+	Reference WorkType = iota
+	Current
+)
+
+type WorkItem struct {
+	Type WorkType
+	Url  Url
+}
+
+var work = make(chan WorkItem, 100)
 
 func main() {
 	// start chrome
@@ -49,22 +64,34 @@ func main() {
 	http.HandleFunc("/pdiff/", handlePDiffRequest)
 	http.HandleFunc("/screenshot/get/", handleGetScreenshot)
 	http.HandleFunc("/screenshot/reference/get/", handleGetReferenceScreenshot)
+	http.HandleFunc("/screenshot/scan/", handleGetScanScreenshot)
 	http.HandleFunc("/url/add", handleAddUrl)
 	http.HandleFunc("/url/delete/", handleDeleteUrl)
 
-	go func(h *http.Server) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func(h *http.Server, cancel context.CancelFunc) {
 		fmt.Println("Press ctrl+c to interrupt...")
 
 		<-stop
 
 		fmt.Println("Shutting down...")
 		h.Shutdown(context.Background())
+		cancel()
 		logger.Println("Server gracefully stopped")
-	}(h)
+	}(h, cancel)
 
 	// start chrome
 	go func() {
-		cmd := exec.Command("/opt/google/chrome/chrome",
+		//path := "/Applications/Google Chrome.app/Contents/Versions/68.0.3440.106/Google Chrome Helper.app"
+		path := "open"
+		//path := "/opt/google/chrome/chrome"
+		cmd := exec.Command(path,
+			"-n",
+			"-a",
+			"Google Chrome",
+			"--args",
 			"--remote-debugging-port=9222",
 			"--disable-extensions",
 			"--disable-default-apps",
@@ -73,7 +100,8 @@ func main() {
 			"--incognito",
 			//"--kiosk",
 			"--window-size=800,600",
-			"--user-data-dir=remote-profile")
+			"--user-data-dir=/tmp/Chrome Alt")
+		//"--user-data-dir=remote-profile")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			fmt.Println(fmt.Sprint(err) + ": " + string(output))
@@ -83,10 +111,64 @@ func main() {
 		}
 	}()
 
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func(ctx context.Context, wg sync.WaitGroup) {
+		fmt.Println("Listening for work...")
+	loop:
+		for {
+			select {
+			case w := <-work:
+				time.Sleep(1 * time.Second)
+				fmt.Println("work received %v", w)
+
+				data, err := read()
+				if err != nil {
+					panic(err)
+				}
+
+				index := -1
+				var found Url
+				for i, item := range data {
+					if item.Id == w.Url.Id {
+						index = i
+						found = data[i]
+						break
+					}
+				}
+
+				if index != -1 {
+					_, thumb, err := createScreenshot(found.Url)
+					if err != nil {
+						panic(err)
+					}
+
+					switch w.Type {
+					case Reference:
+						data[index].Reference = thumb
+					case Current:
+						data[index].Current = thumb
+					}
+
+					saveData(data)
+				}
+
+			case <-ctx.Done():
+				fmt.Println("ctx done")
+				break loop
+			}
+		}
+		fmt.Println("Done listening for work...")
+		wg.Done()
+	}(ctx, wg)
+
 	logger.Printf("Listening on http://0.0.0.0:8080\n")
 	if err := h.ListenAndServe(); err != nil {
 		logger.Fatal(err)
 	}
+
+	wg.Wait()
 }
 
 func handleShutdown(w http.ResponseWriter, r *http.Request) {
@@ -131,47 +213,25 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type ScreenshotResponse struct {
-		Data string `json:"data"`
-	}
-
-	response := ScreenshotResponse{}
-
+	index := -1
+	var found Url
 	for i, item := range data {
 		if item.Id == id {
-			b, err := lib.Run(5*time.Second, item.Url)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			img, _, err := image.Decode(bytes.NewReader(b))
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
-
-			buf := new(bytes.Buffer)
-			err = png.Encode(buf, image2)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			b2 := buf.Bytes()
-
-			data[i].Current = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
-			response = ScreenshotResponse{Data: data[i].Current}
-
+			index = i
+			found = data[i]
 			break
 		}
 	}
-	fmt.Println("done")
 
-	saveData(data)
+	if index == -1 {
+		setupResponse(w, r)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
 
-	j, err := json.MarshalIndent(response, "", "  ")
+	work <- WorkItem{Type: Current, Url: found}
+
+	j, err := json.Marshal("{}")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -457,10 +517,10 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 
 			temp, err := cmd.CombinedOutput()
 			if err != nil {
-				status =  cmd.ProcessState.Success()
+				status = cmd.ProcessState.Success()
 				output = string(temp)
 			} else {
-				status =  cmd.ProcessState.Success()
+				status = cmd.ProcessState.Success()
 				output = string(temp)
 			}
 
@@ -471,7 +531,7 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 
 	type Response struct {
 		Output string `json:"output"`
-		Status bool `json:"status"`
+		Status bool   `json:"status"`
 	}
 
 	response := Response{
@@ -549,7 +609,56 @@ func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
 		Data string `json:"data"`
 	}
 
-	response := ScreenshotResponse{}
+	data, err := read()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	index := -1
+	var found Url
+	for i, item := range data {
+		if item.Id == id {
+			index = i
+			found = data[i]
+			break
+		}
+	}
+
+	if index == -1 || found.Reference == "" {
+		setupResponse(w, r)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	response := ScreenshotResponse{
+		Data: found.Reference,
+	}
+
+	j, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	setupResponse(w, r)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+}
+
+func handleGetScanScreenshot(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r)
+	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/scan/"):])
+	fmt.Println(id)
+
+	if r.Method == "OPTIONS" {
+		setupResponse(w, r)
+		return
+	}
+
+	type ScreenshotResponse struct {
+		Data string `json:"data"`
+	}
 
 	data, err := read()
 	if err != nil {
@@ -561,29 +670,20 @@ func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
 	var found Url
 	for i, item := range data {
 		if item.Id == id {
-			response.Data = item.Reference
 			index = i
 			found = data[i]
 			break
 		}
 	}
 
-	if index != -1 && found.Reference == "" {
-		_, thumb, err := createScreenshot(found.Url)
-		if err != nil {
-			panic(err)
-		}
-
-		data[index].Reference = thumb
-		saveData(data)
-
-		response.Data = thumb
-	}
-
-	if index == -1 || response.Data == "" {
+	if index == -1 || found.Current == "" {
 		setupResponse(w, r)
 		w.WriteHeader(http.StatusNotFound)
 		return
+	}
+
+	response := ScreenshotResponse{
+		Data: found.Current,
 	}
 
 	j, err := json.MarshalIndent(response, "", "  ")
@@ -637,16 +737,15 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	//_, thumb, err := createScreenshot(t.Url)
-
 	u := Url{
 		Url: t.Url,
 		Id:  max + 1,
-		//Reference: thumb,
 	}
 	data = append(data, u)
 
 	saveData(data)
+
+	work <- WorkItem{Type: Reference, Url: u}
 
 	type Response struct {
 		Id int `json:"id"`
@@ -703,6 +802,8 @@ func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, fmt.Sprintf("%s", j))
 }
+
+// *********************************************************************************
 
 func createScreenshot(url string) (string, string, error) {
 	b, err := lib.Run(5*time.Second, url)

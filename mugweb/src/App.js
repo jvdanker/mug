@@ -55,7 +55,6 @@ class App extends Component {
 
         const urls = this.state.urls;
 
-
         fetch("http://localhost:8080/url/add", {
             method: 'POST',
             body: JSON.stringify({url: this.state.url}),
@@ -92,12 +91,26 @@ class App extends Component {
 
         fetch("http://localhost:8080/scan/" + item.id)
             .then(res => res.json())
+            .then(response => {
+                this.timerId = setTimeout(
+                    () => {
+                        this.getScan(item.id);
+                    }, 5000
+                );
+
+            })
+            .catch(error => console.error('Error:', error));
+    }
+
+    getScan(id) {
+        fetch("http://localhost:8080/screenshot/scan/" + id)
+            .then(res => res.json())
             .then(res => {
                 console.log(res);
 
                 var urls = this.state.urls;
                 var index = urls.findIndex(e => {
-                    return e.id === item.id;
+                    return e.id === id;
                 });
 
                 if (index > -1) {
@@ -107,8 +120,17 @@ class App extends Component {
                     });
                 }
 
-            })
-            .catch(error => console.error('Error:', error));
+                clearInterval(this.timerId);
+                this.timerId = -1;
+            }).catch(error => {
+                console.error('Error:', error);
+
+                this.timerId = setTimeout(
+                    () => {
+                        console.log('tick');
+                        this.getScan(id);
+                    }, 5000);
+            });
     }
 
     initLink(item, event) {
