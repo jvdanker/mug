@@ -86,10 +86,58 @@ class App extends Component {
             .catch(error => console.error('Error:', error));
     }
 
+    scanAll(event) {
+        event.preventDefault();
+        var state = this.state;
+
+        fetch("http://localhost:8080/scan",{
+            method: 'POST',
+            body: JSON.stringify({type: 'current'}),
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }).then(res => res.json())
+            .then(response => {
+                console.log(response);
+
+                this.timerId = setInterval(
+                    () => {
+                        console.log('tick', response.ids.length, response.ids);
+
+                        if (response.ids.length === 0) {
+                            clearInterval(this.timerId);
+                            this.timerId = -1;
+                        } else {
+                            var id = response.ids.splice(0, 1)[0];
+
+                            fetch("http://localhost:8080/screenshot/scan/" + id)
+                                .then(res => res.json())
+                                .then(res => {
+                                    console.log(res);
+
+                                    var urls = state.urls;
+                                    var index = urls.findIndex(e => {
+                                        return e.id === id;
+                                    });
+
+                                    if (index > -1) {
+                                        urls[index].current = res.data;
+                                        this.setState({
+                                            urls: urls
+                                        });
+                                    } else {
+                                        console.error("Index not found: ", id);
+                                    }
+                                }).catch(error => console.error('Error:', error));
+                        }
+                    }, 5000);
+            }).catch(error => console.error('Error:', error));
+    }
+
     scanLink(item, event) {
         event.preventDefault();
 
-        fetch("http://localhost:8080/scan/" + item.id)
+        fetch("http://localhost:8080/url/scan/" + item.id)
             .then(res => res.json())
             .then(response => {
                 this.timerId = setTimeout(
@@ -281,7 +329,7 @@ class App extends Component {
 
         return (
             <div className="App">
-                <form onSubmit={this.addUrl}>
+                <form>
                     <fieldset>
                         <legend>Add URL</legend>
 
@@ -296,7 +344,8 @@ class App extends Component {
                                required/>
                     </fieldset>
 
-                    <button type="submit">Add URL</button>
+                    <button type="button" onClick={this.addUrl}>Add URL</button>
+                    <button type="button" onClick={this.scanAll.bind(this)}>Scan all</button>
                 </form>
 
                 <ul>{listItems}</ul>

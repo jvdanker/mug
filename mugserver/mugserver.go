@@ -14,10 +14,10 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -31,42 +31,44 @@ type Url struct {
 	Overlay   string `json:"overlay"`
 }
 
-var stop = make(chan os.Signal, 1)
+type Decorator func(http.HandlerFunc) http.HandlerFunc
+type JsonHandler func(*http.Request) (interface{}, error)
 
 type WorkType int
+type WorkItem struct {
+	Type WorkType
+	Url  Url
+}
 
 const (
 	Reference WorkType = iota
 	Current
 )
 
-type WorkItem struct {
-	Type WorkType
-	Url  Url
-}
-
+var stop = make(chan os.Signal, 1)
 var work = make(chan WorkItem, 100)
+var logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
 
 func main() {
 	// start chrome
 	// /opt/google/chrome/chrome --remote-debugging-port=9222 --user-data-dir=remote-profile
 
 	signal.Notify(stop, os.Interrupt)
-	logger := log.New(os.Stdout, "", 0)
 
 	h := &http.Server{Addr: ":8080", Handler: nil}
-	http.HandleFunc("/shutdown", handleShutdown)
-	http.HandleFunc("/list", handleListRequests)
-	http.HandleFunc("/scan/", handleScanRequests)
-	http.HandleFunc("/init/", handleInitRequests)
-	http.HandleFunc("/merge/", handleMergeRequests)
-	http.HandleFunc("/diff/", handleDiffRequest)
-	http.HandleFunc("/pdiff/", handlePDiffRequest)
-	http.HandleFunc("/screenshot/get/", handleGetScreenshot)
-	http.HandleFunc("/screenshot/reference/get/", handleGetReferenceScreenshot)
-	http.HandleFunc("/screenshot/scan/", handleGetScanScreenshot)
-	http.HandleFunc("/url/add", handleAddUrl)
-	http.HandleFunc("/url/delete/", handleDeleteUrl)
+	Handle("/shutdown", handleShutdown)
+	Handle("/list", handleListRequests)
+	Handle("/init/", handleInitRequests)
+	Handle("/merge/", handleMergeRequests)
+	Handle("/diff/", handleDiffRequest)
+	Handle("/pdiff/", handlePDiffRequest)
+	Handle("/scan", handleScanAllRequests)
+	Handle("/screenshot/get/", handleGetScreenshot)
+	Handle("/screenshot/reference/get/", handleGetReferenceScreenshot)
+	Handle("/screenshot/scan/", handleGetScanScreenshot)
+	Handle("/url/add", handleAddUrl)
+	Handle("/url/delete/", handleDeleteUrl)
+	Handle("/url/scan/", handleScanRequests)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -82,86 +84,11 @@ func main() {
 		logger.Println("Server gracefully stopped")
 	}(h, cancel)
 
-	// start chrome
-	go func() {
-		//path := "/Applications/Google Chrome.app/Contents/Versions/68.0.3440.106/Google Chrome Helper.app"
-		path := "open"
-		//path := "/opt/google/chrome/chrome"
-		cmd := exec.Command(path,
-			"-n",
-			"-a",
-			"Google Chrome",
-			"--args",
-			"--remote-debugging-port=9222",
-			"--disable-extensions",
-			"--disable-default-apps",
-			"--disable-sync",
-			"--hide-scrollbars",
-			"--incognito",
-			//"--kiosk",
-			"--window-size=800,600",
-			"--user-data-dir=/tmp/Chrome Alt")
-		//"--user-data-dir=remote-profile")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Println(fmt.Sprint(err) + ": " + string(output))
-			return
-		} else {
-			fmt.Println(string(output))
-		}
-	}()
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	go func(ctx context.Context, wg sync.WaitGroup) {
-		fmt.Println("Listening for work...")
-	loop:
-		for {
-			select {
-			case w := <-work:
-				time.Sleep(1 * time.Second)
-				fmt.Println("work received %v", w)
-
-				data, err := read()
-				if err != nil {
-					panic(err)
-				}
-
-				index := -1
-				var found Url
-				for i, item := range data {
-					if item.Id == w.Url.Id {
-						index = i
-						found = data[i]
-						break
-					}
-				}
-
-				if index != -1 {
-					_, thumb, err := createScreenshot(found.Url)
-					if err != nil {
-						panic(err)
-					}
-
-					switch w.Type {
-					case Reference:
-						data[index].Reference = thumb
-					case Current:
-						data[index].Current = thumb
-					}
-
-					saveData(data)
-				}
-
-			case <-ctx.Done():
-				fmt.Println("ctx done")
-				break loop
-			}
-		}
-		fmt.Println("Done listening for work...")
-		wg.Done()
-	}(ctx, wg)
+	go startChrome()
+	go backgroundWorker(ctx, wg)
 
 	logger.Printf("Listening on http://0.0.0.0:8080\n")
 	if err := h.ListenAndServe(); err != nil {
@@ -171,46 +98,154 @@ func main() {
 	wg.Wait()
 }
 
-func handleShutdown(w http.ResponseWriter, r *http.Request) {
-	stop <- os.Interrupt
+func Handle(pattern string, handler JsonHandler) {
+	http.HandleFunc(pattern, Decorate(
+		handler,
+		WithLogger(logger),
+		WithCors()))
 }
 
-func handleListRequests(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "OPTIONS" {
-		setupResponse(w, r)
-		return
+type HandlerError struct {
+	message string
+	code    int
+}
+
+func (h HandlerError) Error() string {
+	return h.message
+}
+
+func Decorate(h JsonHandler, decorators ...Decorator) http.HandlerFunc {
+	var handler = func(w http.ResponseWriter, r *http.Request) {
+		data, err := h(r)
+		if err != nil {
+			he, ok := err.(HandlerError)
+			if !ok {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			} else {
+				http.Error(w, err.Error(), he.code)
+			}
+			return
+		}
+
+		if data == nil {
+			var s struct{}
+			data = s
+		}
+
+		j, err := json.Marshal(data)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(j)
 	}
 
+	for _, d := range decorators {
+		handler = d(handler)
+	}
+
+	return handler
+}
+
+func WithLogger(l *log.Logger) Decorator {
+	return func(h http.HandlerFunc) http.HandlerFunc {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			l.Println(r.Method, r.URL.Path)
+			//req, _ := httputil.DumpRequest(r, true)
+			//fmt.Printf("%s\n", string(req))
+
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
+func WithCors() Decorator {
+	return func(h http.HandlerFunc) http.HandlerFunc {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding")
+
+			if r.Method == "OPTIONS" {
+				return
+			}
+
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
+// *********************************************************************************
+
+func handleShutdown(r *http.Request) (interface{}, error) {
+	stop <- os.Interrupt
+
+	return nil, nil
+}
+
+func handleListRequests(r *http.Request) (interface{}, error) {
 	d, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	j, err := json.Marshal(d)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	setupResponse(w, r)
-	w.Write(j)
+	return d, nil
 }
 
-func handleScanRequests(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
-	id, err := strconv.Atoi(r.URL.Path[len("/scan/"):])
-	fmt.Println(id)
-
-	if r.Method == "OPTIONS" {
-		setupResponse(w, r)
-		return
+func handleScanAllRequests(r *http.Request) (interface{}, error) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
 	}
+
+	log.Println(string(body))
+	var t struct {
+		Type string `json:"type"`
+	}
+
+	err = json.Unmarshal(body, &t)
+	if err != nil {
+		return nil, err
+	}
+	log.Println(t)
 
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
+	}
+
+	type Response struct {
+		Ids []int `json:"ids"`
+	}
+
+	var response Response
+
+	for _, item := range data {
+		switch t.Type {
+		case "current":
+			response.Ids = append(response.Ids, item.Id)
+			work <- WorkItem{Type: Current, Url: item}
+		case "reference":
+			response.Ids = append(response.Ids, item.Id)
+			work <- WorkItem{Type: Reference, Url: item}
+		default:
+			panic("Unsupported type " + t.Type)
+		}
+	}
+
+	return response, nil
+}
+
+func handleScanRequests(r *http.Request) (interface{}, error) {
+	id, err := strconv.Atoi(r.URL.Path[len("/url/scan/"):])
+	fmt.Println(id)
+
+	data, err := read()
+	if err != nil {
+		return nil, err
 	}
 
 	index := -1
@@ -224,38 +259,21 @@ func handleScanRequests(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if index == -1 {
-		setupResponse(w, r)
-		w.WriteHeader(http.StatusNotFound)
-		return
+		return nil, HandlerError{"", http.StatusNotFound}
 	}
 
 	work <- WorkItem{Type: Current, Url: found}
 
-	j, err := json.Marshal("{}")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	setupResponse(w, r)
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return nil, nil
 }
 
-func handleInitRequests(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handleInitRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/init/"):])
 	fmt.Println(id)
 
-	setupResponse(w, r)
-	if r.Method == "OPTIONS" {
-		return
-	}
-
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	for i, item := range data {
@@ -264,8 +282,7 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 
 			img, _, err := image.Decode(bytes.NewReader(b))
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
@@ -273,8 +290,7 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			err = png.Encode(buf, image2)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 			b2 := buf.Bytes()
 
@@ -282,47 +298,31 @@ func handleInitRequests(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	fmt.Println("done")
 
 	saveData(data)
 
-	j, err := json.MarshalIndent("", "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return nil, nil
 }
 
-func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handleMergeRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/merge/"):])
 	fmt.Println(id)
 
-	setupResponse(w, r)
-	if r.Method == "OPTIONS" {
-		return
-	}
-
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	for i, item := range data {
 		if item.Id == id {
 			img1, err := decodeImage(item.Reference)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			img2, err := decodeImage(item.Current)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			b1 := img1.Bounds()
@@ -343,15 +343,13 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 			buf := new(bytes.Buffer)
 			err = png.Encode(buf, img3)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 			b2 := buf.Bytes()
 
 			outfile, err := os.Create("image.png")
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 			png.Encode(outfile, img3)
 			outfile.Close()
@@ -360,33 +358,19 @@ func handleMergeRequests(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	fmt.Println("done")
 
 	saveData(data)
 
-	j, err := json.MarshalIndent("", "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return nil, nil
 }
 
-func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handleDiffRequest(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/diff/"):])
 	fmt.Println(id)
 
-	setupResponse(w, r)
-	if r.Method == "OPTIONS" {
-		return
-	}
-
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	for _, item := range data {
@@ -394,27 +378,23 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 			str1 := item.Reference[len("data::image/png;base64,"):]
 			b1, err := base64.StdEncoding.DecodeString(str1)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			err = ioutil.WriteFile("i1.png", b1, 0644)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			str2 := item.Reference[len("data::image/png;base64,"):]
 			b2, err := base64.StdEncoding.DecodeString(str2)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			err = ioutil.WriteFile("i2.png", b2, 0644)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			// /opt/google/chrome/chrome --remote-debugging-port=9222 --user-data-dir=remote-profile
@@ -424,8 +404,7 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 				"-verbose")
 			output, err := cmd.CombinedOutput()
 			if err != nil {
-				fmt.Println(fmt.Sprint(err) + ": " + string(output))
-				return
+				return nil, err
 			} else {
 				fmt.Println(string(output))
 			}
@@ -435,33 +414,19 @@ func handleDiffRequest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	fmt.Println("done")
 
 	saveData(data)
 
-	j, err := json.MarshalIndent("", "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return nil, nil
 }
 
-func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handlePDiffRequest(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/pdiff/"):])
 	fmt.Println(id)
 
-	if r.Method == "OPTIONS" {
-		setupResponse(w, r)
-		return
-	}
-
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	output := ""
@@ -470,34 +435,29 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 	for _, item := range data {
 		if item.Id == id {
 			if item.Reference == "" || item.Current == "" {
-				http.Error(w, "Missing reference or current image", http.StatusInternalServerError)
-				return
+				return nil, HandlerError{"Missing reference or current image", http.StatusInternalServerError}
 			}
 
 			str1 := item.Reference[len("data::image/png;base64,"):]
 			b1, err := base64.StdEncoding.DecodeString(str1)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			err = ioutil.WriteFile("i1.png", b1, 0644)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			str2 := item.Current[len("data::image/png;base64,"):]
 			b2, err := base64.StdEncoding.DecodeString(str2)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			err = ioutil.WriteFile("i2.png", b2, 0644)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return nil, err
 			}
 
 			dir, err := os.Getwd()
@@ -527,7 +487,6 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	fmt.Println("done")
 
 	type Response struct {
 		Output string `json:"output"`
@@ -539,26 +498,12 @@ func handlePDiffRequest(w http.ResponseWriter, r *http.Request) {
 		Status: status,
 	}
 
-	j, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	setupResponse(w, r)
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return response, nil
 }
 
-func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handleGetScreenshot(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/get/"):])
 	fmt.Println(id)
-
-	setupResponse(w, r)
-	if r.Method == "OPTIONS" {
-		return
-	}
 
 	type ScreenshotResponse struct {
 		Data string `json:"data"`
@@ -568,8 +513,7 @@ func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	found := false
@@ -582,28 +526,15 @@ func handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !found {
-		w.WriteHeader(http.StatusNotFound)
-		return
+		return nil, HandlerError{"", http.StatusNotFound}
 	}
 
-	j, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return response, nil
 }
 
-func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handleGetReferenceScreenshot(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/reference/get/"):])
 	fmt.Println(id)
-
-	if r.Method == "OPTIONS" {
-		setupResponse(w, r)
-		return
-	}
 
 	type ScreenshotResponse struct {
 		Data string `json:"data"`
@@ -611,8 +542,7 @@ func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	index := -1
@@ -626,35 +556,19 @@ func handleGetReferenceScreenshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if index == -1 || found.Reference == "" {
-		setupResponse(w, r)
-		w.WriteHeader(http.StatusNotFound)
-		return
+		return nil, HandlerError{"", http.StatusNotFound}
 	}
 
 	response := ScreenshotResponse{
 		Data: found.Reference,
 	}
 
-	j, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	setupResponse(w, r)
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return response, nil
 }
 
-func handleGetScanScreenshot(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handleGetScanScreenshot(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/scan/"):])
 	fmt.Println(id)
-
-	if r.Method == "OPTIONS" {
-		setupResponse(w, r)
-		return
-	}
 
 	type ScreenshotResponse struct {
 		Data string `json:"data"`
@@ -662,8 +576,7 @@ func handleGetScanScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	index := -1
@@ -677,39 +590,20 @@ func handleGetScanScreenshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if index == -1 || found.Current == "" {
-		setupResponse(w, r)
-		w.WriteHeader(http.StatusNotFound)
-		return
+		return nil, HandlerError{"", http.StatusNotFound}
 	}
 
 	response := ScreenshotResponse{
 		Data: found.Current,
 	}
 
-	j, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	setupResponse(w, r)
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return response, nil
 }
 
-func handleAddUrl(w http.ResponseWriter, r *http.Request) {
-	req, _ := httputil.DumpRequest(r, true)
-	fmt.Printf("%s\n", string(req))
-
-	if r.Method == "OPTIONS" {
-		setupResponse(w, r)
-		return
-	}
-
+func handleAddUrl(r *http.Request) (interface{}, error) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	log.Println(string(body))
@@ -719,15 +613,13 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(body, &t)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	log.Println(t.Url)
 
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	max := 0
@@ -751,38 +643,16 @@ func handleAddUrl(w http.ResponseWriter, r *http.Request) {
 		Id int `json:"id"`
 	}
 
-	response := Response{Id: max + 1}
-	j, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	setupResponse(w, r)
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return Response{Id: max + 1}, nil
 }
 
-func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
+func handleDeleteUrl(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/url/delete/"):])
 	fmt.Println(id)
 
-	setupResponse(w, r)
-	if r.Method == "OPTIONS" {
-		return
-	}
-
-	type ScreenshotResponse struct {
-		Data string `json:"data"`
-	}
-
-	response := ScreenshotResponse{}
-
 	data, err := read()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
 	for i, item := range data {
@@ -794,13 +664,7 @@ func handleDeleteUrl(w http.ResponseWriter, r *http.Request) {
 
 	saveData(data)
 
-	j, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	fmt.Fprintf(w, fmt.Sprintf("%s", j))
+	return nil, nil
 }
 
 // *********************************************************************************
@@ -873,9 +737,98 @@ func decodeImage(data string) (image.Image, error) {
 	return img, err
 }
 
-func setupResponse(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding")
-	w.Header().Set("Content-Type", "application/json")
+func startChrome() {
+	switch runtime.GOOS {
+	case "linux":
+		path := "/opt/google/chrome/chrome"
+		cmd := exec.Command(path,
+			"--remote-debugging-port=9222",
+			"--disable-extensions",
+			"--disable-default-apps",
+			"--disable-sync",
+			"--hide-scrollbars",
+			"--incognito",
+			"--window-size=800,600",
+			"--user-data-dir=remote-profile")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Println(fmt.Sprint(err) + ": " + string(output))
+			return
+		} else {
+			fmt.Println(string(output))
+		}
+	case "darwin":
+		path := "open"
+		cmd := exec.Command(path,
+			"-n",
+			"-a",
+			"Google Chrome",
+			"--args",
+			"--remote-debugging-port=9222",
+			"--disable-extensions",
+			"--disable-default-apps",
+			"--disable-sync",
+			"--hide-scrollbars",
+			"--incognito",
+			"--window-size=800,600",
+			"--user-data-dir=/tmp/Chrome Alt")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Println(fmt.Sprint(err) + ": " + string(output))
+			return
+		} else {
+			fmt.Println(string(output))
+		}
+	default:
+		panic("Unsupported operating system " + runtime.GOOS)
+	}
+}
+
+func backgroundWorker(ctx context.Context, wg sync.WaitGroup) {
+	fmt.Println("Listening for work...")
+loop:
+	for {
+		select {
+		case w := <-work:
+			time.Sleep(1 * time.Second)
+			fmt.Println("work received %v", w)
+
+			data, err := read()
+			if err != nil {
+				panic(err)
+			}
+
+			index := -1
+			var found Url
+			for i, item := range data {
+				if item.Id == w.Url.Id {
+					index = i
+					found = data[i]
+					break
+				}
+			}
+
+			if index != -1 {
+				_, thumb, err := createScreenshot(found.Url)
+				if err != nil {
+					panic(err)
+				}
+
+				switch w.Type {
+				case Reference:
+					data[index].Reference = thumb
+				case Current:
+					data[index].Current = thumb
+				}
+
+				saveData(data)
+			}
+
+		case <-ctx.Done():
+			fmt.Println("ctx done")
+			break loop
+		}
+	}
+	fmt.Println("Done listening for work...")
+	wg.Done()
 }
