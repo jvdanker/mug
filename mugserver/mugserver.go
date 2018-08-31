@@ -119,10 +119,10 @@ func Decorate(h JsonHandler, decorators ...Decorator) http.HandlerFunc {
 		data, err := h(r)
 		if err != nil {
 			he, ok := err.(HandlerError)
-			if !ok {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			} else {
+			if ok {
 				http.Error(w, err.Error(), he.code)
+			} else {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -462,7 +462,7 @@ func handlePDiffRequest(r *http.Request) (interface{}, error) {
 
 			dir, err := os.Getwd()
 			if err != nil {
-				log.Fatal(err)
+				return nil, err
 			}
 
 			cmd := exec.Command("docker",
