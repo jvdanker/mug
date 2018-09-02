@@ -11,7 +11,7 @@ import (
 
 type Api interface {
 	List() ([]store.Url, error)
-	ScanAll(t string)
+	ScanAll(t string) (interface{}, error)
 	SubmitScanRequest(id int) error
 	Init(id int) (interface{}, error)
 	PDiff(id int) (interface{}, error)
@@ -22,7 +22,6 @@ type Api interface {
 }
 
 type MugApi struct {
-	Api
 	worker Worker
 }
 

@@ -302,7 +302,7 @@ class App extends Component {
                     <fieldset>
                         <legend>Add URL</legend>
 
-                        <label htmlFor="url">Enter an URL:</label>
+                        <label htmlFor="url">Enter a URL:</label>
                         <input type="url"
                                name="url"
                                placeholder="https://example.com"
