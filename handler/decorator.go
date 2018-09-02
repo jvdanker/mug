@@ -1,25 +1,14 @@
-package http
+package handler
 
 import (
 	"encoding/json"
 	"github.com/jvdanker/mug/store"
 	"log"
 	"net/http"
-	"os"
 )
 
 type Decorator func(http.HandlerFunc) http.HandlerFunc
 type JsonHandler func(*http.Request) (interface{}, error)
-
-func Handle(pattern string, handler JsonHandler) {
-	var logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
-
-	http.HandleFunc(pattern, Decorate(
-		handler,
-		WithJsonHandler(),
-		WithLogger(logger),
-		WithCors()))
-}
 
 func Decorate(h JsonHandler, decorators ...Decorator) http.HandlerFunc {
 	var handler = func(w http.ResponseWriter, r *http.Request) {

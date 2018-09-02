@@ -1,9 +1,10 @@
-package http
+package handler
 
 import (
 	"encoding/json"
 	"github.com/jvdanker/mug/api"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -23,6 +24,16 @@ func NewHandlers(stop chan<- os.Signal, worker api.Worker) HttpHandlers {
 		a:      a,
 		worker: worker,
 	}
+}
+
+func (h HttpHandlers) AddHandler(pattern string, handler JsonHandler) {
+	var logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
+
+	http.HandleFunc(pattern, Decorate(
+		handler,
+		WithJsonHandler(),
+		WithLogger(logger),
+		WithCors()))
 }
 
 func (h HttpHandlers) HandleShutdown(r *http.Request) (interface{}, error) {
