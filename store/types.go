@@ -1,0 +1,20 @@
+package store
+
+type Url struct {
+	Id        int    `json:"id"`
+	Url       string `json:"url"`
+	Reference string `json:"reference"`
+	Current   string `json:"current"`
+	Overlay   string `json:"overlay"`
+}
+
+type Store interface {
+	Open() error
+	Close()
+
+	List() []Url
+	Get(id int) (*Url, error)
+	Update(url Url) error
+	Add(url Url) error
+	Delete(id int) error
+}

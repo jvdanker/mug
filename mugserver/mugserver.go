@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jvdanker/mug/lib"
+	"github.com/jvdanker/mug/store"
 	"github.com/nfnt/resize"
 	"image"
 	"image/png"
@@ -23,21 +24,13 @@ import (
 	"time"
 )
 
-type Url struct {
-	Id        int    `json:"id"`
-	Url       string `json:"url"`
-	Reference string `json:"reference"`
-	Current   string `json:"current"`
-	Overlay   string `json:"overlay"`
-}
-
 type Decorator func(http.HandlerFunc) http.HandlerFunc
 type JsonHandler func(*http.Request) (interface{}, error)
 
 type WorkType int
 type WorkItem struct {
 	Type WorkType
-	Url  Url
+	Url  store.Url
 }
 
 const (
@@ -87,7 +80,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	go startChrome()
+	//go startChrome()
 	go backgroundWorker(ctx, wg)
 
 	logger.Printf("Listening on http://0.0.0.0:8080\n")
@@ -101,6 +94,7 @@ func main() {
 func Handle(pattern string, handler JsonHandler) {
 	http.HandleFunc(pattern, Decorate(
 		handler,
+		WithJsonHandler(),
 		WithLogger(logger),
 		WithCors()))
 }
@@ -150,6 +144,15 @@ func Decorate(h JsonHandler, decorators ...Decorator) http.HandlerFunc {
 	return handler
 }
 
+func WithJsonHandler() Decorator {
+	return func(h http.HandlerFunc) http.HandlerFunc {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
 func WithLogger(l *log.Logger) Decorator {
 	return func(h http.HandlerFunc) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,12 +190,13 @@ func handleShutdown(r *http.Request) (interface{}, error) {
 }
 
 func handleListRequests(r *http.Request) (interface{}, error) {
-	d, err := read()
+	fs := store.NewFileStore()
+	err := fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	return d, nil
+	return fs.List(), nil
 }
 
 func handleScanAllRequests(r *http.Request) (interface{}, error) {
@@ -212,7 +216,8 @@ func handleScanAllRequests(r *http.Request) (interface{}, error) {
 	}
 	log.Println(t)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +228,7 @@ func handleScanAllRequests(r *http.Request) (interface{}, error) {
 
 	var response Response
 
-	for _, item := range data {
+	for _, item := range fs.List() {
 		switch t.Type {
 		case "current":
 			response.Ids = append(response.Ids, item.Id)
@@ -243,26 +248,18 @@ func handleScanRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/url/scan/"):])
 	fmt.Println(id)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	index := -1
-	var found Url
-	for i, item := range data {
-		if item.Id == id {
-			index = i
-			found = data[i]
-			break
-		}
-	}
-
-	if index == -1 {
+	item, err := fs.Get(id)
+	if err != nil {
 		return nil, HandlerError{"", http.StatusNotFound}
 	}
 
-	work <- WorkItem{Type: Current, Url: found}
+	work <- WorkItem{Type: Current, Url: *item}
 
 	return nil, nil
 }
@@ -271,35 +268,40 @@ func handleInitRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/init/"):])
 	fmt.Println(id)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	for i, item := range data {
-		if item.Id == id {
-			b, err := lib.Run(5*time.Second, item.Url)
-
-			img, _, err := image.Decode(bytes.NewReader(b))
-			if err != nil {
-				return nil, err
-			}
-
-			image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
-
-			buf := new(bytes.Buffer)
-			err = png.Encode(buf, image2)
-			if err != nil {
-				return nil, err
-			}
-			b2 := buf.Bytes()
-
-			data[i].Reference = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
-			break
-		}
+	item, err := fs.Get(id)
+	if err != nil {
+		return nil, err
 	}
 
-	saveData(data)
+	b, err := lib.Run(5*time.Second, item.Url)
+
+	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
+
+	buf := new(bytes.Buffer)
+	err = png.Encode(buf, image2)
+	if err != nil {
+		return nil, err
+	}
+	b2 := buf.Bytes()
+
+	item.Reference = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
+	err = fs.Update(*item)
+	if err != nil {
+		return nil, err
+	}
+
+	fs.Close()
 
 	return nil, nil
 }
@@ -308,12 +310,13 @@ func handleMergeRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/merge/"):])
 	fmt.Println(id)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	for i, item := range data {
+	for _, item := range fs.List() {
 		if item.Id == id {
 			img1, err := decodeImage(item.Reference)
 			if err != nil {
@@ -354,12 +357,12 @@ func handleMergeRequests(r *http.Request) (interface{}, error) {
 			png.Encode(outfile, img3)
 			outfile.Close()
 
-			data[i].Overlay = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
+			item.Overlay = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
 			break
 		}
 	}
 
-	saveData(data)
+	fs.Close()
 
 	return nil, nil
 }
@@ -368,12 +371,13 @@ func handleDiffRequest(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/diff/"):])
 	fmt.Println(id)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	for _, item := range data {
+	for _, item := range fs.List() {
 		if item.Id == id {
 			str1 := item.Reference[len("data::image/png;base64,"):]
 			b1, err := base64.StdEncoding.DecodeString(str1)
@@ -415,7 +419,7 @@ func handleDiffRequest(r *http.Request) (interface{}, error) {
 		}
 	}
 
-	saveData(data)
+	fs.Close()
 
 	return nil, nil
 }
@@ -424,7 +428,8 @@ func handlePDiffRequest(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/pdiff/"):])
 	fmt.Println(id)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +437,7 @@ func handlePDiffRequest(r *http.Request) (interface{}, error) {
 	output := ""
 	status := true
 
-	for _, item := range data {
+	for _, item := range fs.List() {
 		if item.Id == id {
 			if item.Reference == "" || item.Current == "" {
 				return nil, HandlerError{"Missing reference or current image", http.StatusInternalServerError}
@@ -511,13 +516,14 @@ func handleGetScreenshot(r *http.Request) (interface{}, error) {
 
 	response := ScreenshotResponse{}
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
 	found := false
-	for _, item := range data {
+	for _, item := range fs.List() {
 		if item.Id == id {
 			response.Data = item.Current
 			found = true
@@ -540,27 +546,19 @@ func handleGetReferenceScreenshot(r *http.Request) (interface{}, error) {
 		Data string `json:"data"`
 	}
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	index := -1
-	var found Url
-	for i, item := range data {
-		if item.Id == id {
-			index = i
-			found = data[i]
-			break
-		}
-	}
-
-	if index == -1 || found.Reference == "" {
+	item, err := fs.Get(id)
+	if err != nil || item.Reference == "" {
 		return nil, HandlerError{"", http.StatusNotFound}
 	}
 
 	response := ScreenshotResponse{
-		Data: found.Reference,
+		Data: item.Reference,
 	}
 
 	return response, nil
@@ -574,27 +572,19 @@ func handleGetScanScreenshot(r *http.Request) (interface{}, error) {
 		Data string `json:"data"`
 	}
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	index := -1
-	var found Url
-	for i, item := range data {
-		if item.Id == id {
-			index = i
-			found = data[i]
-			break
-		}
-	}
-
-	if index == -1 || found.Current == "" {
+	item, err := fs.Get(id)
+	if err != nil || item.Current == "" {
 		return nil, HandlerError{"", http.StatusNotFound}
 	}
 
 	response := ScreenshotResponse{
-		Data: found.Current,
+		Data: item.Current,
 	}
 
 	return response, nil
@@ -617,25 +607,30 @@ func handleAddUrl(r *http.Request) (interface{}, error) {
 	}
 	log.Println(t.Url)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
 	max := 0
-	for _, item := range data {
+	for _, item := range fs.List() {
 		if item.Id > max {
 			max = item.Id
 		}
 	}
 
-	u := Url{
+	u := store.Url{
 		Url: t.Url,
 		Id:  max + 1,
 	}
-	data = append(data, u)
 
-	saveData(data)
+	err = fs.Add(u)
+	if err != nil {
+		return nil, err
+	}
+
+	fs.Close()
 
 	work <- WorkItem{Type: Reference, Url: u}
 
@@ -650,19 +645,18 @@ func handleDeleteUrl(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/url/delete/"):])
 	fmt.Println(id)
 
-	data, err := read()
+	fs := store.NewFileStore()
+	err = fs.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	for i, item := range data {
-		if item.Id == id {
-			data = append(data[:i], data[i+1:]...)
-			break
-		}
+	err = fs.Delete(id)
+	if err != nil {
+		return nil, err
 	}
 
-	saveData(data)
+	fs.Close()
 
 	return nil, nil
 }
@@ -690,36 +684,6 @@ func createScreenshot(url string) (string, string, error) {
 	b2 := buf.Bytes()
 
 	return "", "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2), nil
-}
-
-func saveData(data []Url) {
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		fmt.Println("error:", err)
-	}
-
-	outfile, err := os.Create("data.json")
-	if err != nil {
-		panic(err)
-	}
-	defer outfile.Close()
-	outfile.Write(b)
-}
-
-func read() ([]Url, error) {
-	d := []Url{}
-
-	f, err := os.Open("data.json")
-	if err != nil {
-		return d, nil
-	}
-	defer f.Close()
-
-	byteValue, _ := ioutil.ReadAll(f)
-
-	json.Unmarshal(byteValue, &d)
-
-	return d, nil
 }
 
 func decodeImage(data string) (image.Image, error) {
@@ -793,36 +757,30 @@ loop:
 			time.Sleep(1 * time.Second)
 			fmt.Println("work received %v", w)
 
-			data, err := read()
+			fs := store.NewFileStore()
+			err := fs.Open()
 			if err != nil {
 				panic(err)
 			}
 
-			index := -1
-			var found Url
-			for i, item := range data {
-				if item.Id == w.Url.Id {
-					index = i
-					found = data[i]
-					break
-				}
+			item, err := fs.Get(w.Url.Id)
+			if err != nil {
+				panic(err)
 			}
 
-			if index != -1 {
-				_, thumb, err := createScreenshot(found.Url)
-				if err != nil {
-					panic(err)
-				}
-
-				switch w.Type {
-				case Reference:
-					data[index].Reference = thumb
-				case Current:
-					data[index].Current = thumb
-				}
-
-				saveData(data)
+			_, thumb, err := createScreenshot(item.Url)
+			if err != nil {
+				panic(err)
 			}
+
+			switch w.Type {
+			case Reference:
+				item.Reference = thumb
+			case Current:
+				item.Current = thumb
+			}
+
+			fs.Close()
 
 		case <-ctx.Done():
 			fmt.Println("ctx done")
