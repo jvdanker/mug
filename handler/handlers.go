@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"github.com/jvdanker/mug/api"
+	"github.com/jvdanker/mug/store"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -150,7 +151,11 @@ func (h HttpHandlers) HandleAddUrl(r *http.Request) (interface{}, error) {
 }
 
 func (h HttpHandlers) HandleDeleteUrl(r *http.Request) (interface{}, error) {
-	id, err := strconv.Atoi(r.URL.Path[len("/url/delete/"):])
+	if r.Method != "DELETE" {
+		return nil, store.HandlerError{"", http.StatusNotFound}
+	}
+
+	id, err := strconv.Atoi(r.URL.Path[len("/url/"):])
 	if err != nil {
 		return nil, err
 	}

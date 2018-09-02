@@ -32,8 +32,8 @@ func main() {
 	handlers.AddHandler("/screenshot/reference/get/", handlers.HandleGetReferenceScreenshot)
 	handlers.AddHandler("/screenshot/scan/", handlers.HandleGetScanScreenshot)
 	handlers.AddHandler("/url/add", handlers.HandleAddUrl)
-	handlers.AddHandler("/url/delete/", handlers.HandleDeleteUrl)
 	handlers.AddHandler("/url/scan/", handlers.HandleScanRequests)
+	handlers.AddHandler("/url/", handlers.HandleDeleteUrl)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

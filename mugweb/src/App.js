@@ -1,16 +1,6 @@
 import React, {Component} from 'react';
-import styled from 'styled-components';
+import Urls from './components/Urls';
 import './App.css';
-
-const ImageContainer = styled.div`
-  width: 100px;
-  height: 100px;
-  overflow: hidden;
-`;
-
-const Image = styled.img`
-  width: 100px;
-`;
 
 class App extends Component {
 
@@ -25,6 +15,11 @@ class App extends Component {
 
         this.handleChange = this.handleChange.bind(this);
         this.addUrl = this.addUrl.bind(this);
+
+        this.scanLink = this.scanLink.bind(this);
+        this.deleteLink = this.deleteLink.bind(this);
+        this.initLink = this.initLink.bind(this);
+        this.diffLink = this.diffLink.bind(this);
     }
 
     componentDidMount() {
@@ -38,7 +33,7 @@ class App extends Component {
             })
             .catch(error => console.error('Error:', error));
 
-        this.startUpdateTimer();
+        // this.startUpdateTimer();
     }
 
     componentWillUnmount() {
@@ -95,7 +90,7 @@ class App extends Component {
                             urls[index].current = res.Data.current;
                             break;
                         case 2: // updated diff
-                            urls[index].diff = res.Data.results;
+                            urls[index].results = res.Data.results;
                             urls[index].status = res.Data.status;
                             break;
                         default:
@@ -155,26 +150,40 @@ class App extends Component {
             .catch(error => console.error('Error:', error));
     }
 
-    scanLink(item, event) {
-        event.preventDefault();
-
+    scanLink(item) {
         fetch("http://localhost:8080/url/scan/" + item.id)
             .then(res => res.json())
             .then(response => console.log(response))
             .catch(error => console.error('Error:', error));
     }
 
-    initLink(item, event) {
-        event.preventDefault();
+    deleteLink(item) {
+        var urls = this.state.urls;
+        var index = urls.findIndex(e => {
+            return e.id === item.id;
+        });
 
+        if (index > -1) {
+            fetch("http://localhost:8080/url/" + item.id, {
+                method: 'DELETE'
+            }).then(res => console.log(res))
+                .catch(error => console.error('Error:', error));
+
+
+            urls.splice(index, 1);
+            this.setState({
+                urls: urls
+            });
+        }
+    }
+
+    initLink(item) {
         fetch("http://localhost:8080/init/" + item.id)
             .then(res => console.log(res))
             .catch(error => console.error('Error:', error));
     }
 
-    diffLink(item, event) {
-        event.preventDefault();
-
+    diffLink(item) {
         fetch("http://localhost:8080/pdiff/" + item.id)
             .then(res => res.json())
             .then(res => {
@@ -186,7 +195,7 @@ class App extends Component {
                 });
 
                 if (index > -1) {
-                    urls[index].diff = res.output;
+                    urls[index].results = res.output;
                     this.setState({
                         urls: urls
                     });
@@ -195,55 +204,7 @@ class App extends Component {
             .catch(error => console.error('Error:', error));
     }
 
-    deleteLink(item, event) {
-        event.preventDefault();
-
-        var urls = this.state.urls;
-        var index = urls.findIndex(e => {
-            return e.id === item.id;
-        });
-
-        if (index > -1) {
-            fetch("http://localhost:8080/url/delete/" + item.id)
-                .then(res => console.log(res))
-                .catch(error => console.error('Error:', error));
-
-
-            urls.splice(index, 1);
-            this.setState({
-                urls: urls
-            });
-        }
-    }
-
     render() {
-        const listItems = this.state.urls.map((item, index) =>
-            <li key={index}>
-                <div>
-                    <ImageContainer>
-                        <Image src={item.reference} />
-                    </ImageContainer>
-                    <ImageContainer>
-                        <Image src={item.current} />
-                    </ImageContainer>
-                    <div>
-                        <pre>
-                            {item.diff}
-                        </pre>
-                    </div>
-                    <div>
-                        {item.url}
-                    </div>
-                    <div>
-                        <a href="scan-link.html" onClick={this.scanLink.bind(this, item)}>scan</a>&nbsp;
-                        <a href="delete" onClick={this.deleteLink.bind(this, item)}>delete</a>&nbsp;
-                        <a href="init" onClick={this.initLink.bind(this, item)}>init</a>&nbsp;
-                        <a href="diff" onClick={this.diffLink.bind(this, item)}>diff</a>&nbsp;
-                    </div>
-                </div>
-            </li>
-        );
-
         return (
             <div className="App">
                 <form>
@@ -277,7 +238,13 @@ class App extends Component {
                     }
                 </form>
 
-                <ul>{listItems}</ul>
+                <Urls
+                    urls={this.state.urls}
+                    onScan={this.scanLink}
+                    onDelete={this.deleteLink}
+                    onInit={this.initLink}
+                    onDiff={this.diffLink}
+                />
             </div>
         );
     }
