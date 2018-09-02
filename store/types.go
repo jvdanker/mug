@@ -18,3 +18,23 @@ type Store interface {
 	Add(url Url) error
 	Delete(id int) error
 }
+
+type WorkType int
+type WorkItem struct {
+	Type WorkType
+	Url  Url
+}
+
+const (
+	Reference WorkType = iota
+	Current
+)
+
+type HandlerError struct {
+	Message string
+	Code    int
+}
+
+func (h HandlerError) Error() string {
+	return h.Message
+}

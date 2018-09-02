@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/jvdanker/mug/api"
 	"github.com/jvdanker/mug/lib"
 	"github.com/jvdanker/mug/store"
 	"github.com/nfnt/resize"
@@ -27,19 +28,8 @@ import (
 type Decorator func(http.HandlerFunc) http.HandlerFunc
 type JsonHandler func(*http.Request) (interface{}, error)
 
-type WorkType int
-type WorkItem struct {
-	Type WorkType
-	Url  store.Url
-}
-
-const (
-	Reference WorkType = iota
-	Current
-)
-
 var stop = make(chan os.Signal, 1)
-var work = make(chan WorkItem, 100)
+var work = make(chan store.WorkItem, 100)
 var logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
 
 func main() {
@@ -99,22 +89,13 @@ func Handle(pattern string, handler JsonHandler) {
 		WithCors()))
 }
 
-type HandlerError struct {
-	message string
-	code    int
-}
-
-func (h HandlerError) Error() string {
-	return h.message
-}
-
 func Decorate(h JsonHandler, decorators ...Decorator) http.HandlerFunc {
 	var handler = func(w http.ResponseWriter, r *http.Request) {
 		data, err := h(r)
 		if err != nil {
-			he, ok := err.(HandlerError)
+			he, ok := err.(store.HandlerError)
 			if ok {
-				http.Error(w, err.Error(), he.code)
+				http.Error(w, err.Error(), he.Code)
 			} else {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
@@ -183,6 +164,8 @@ func WithCors() Decorator {
 
 // *********************************************************************************
 
+var a = api.NewApi(work)
+
 func handleShutdown(r *http.Request) (interface{}, error) {
 	stop <- os.Interrupt
 
@@ -190,56 +173,18 @@ func handleShutdown(r *http.Request) (interface{}, error) {
 }
 
 func handleListRequests(r *http.Request) (interface{}, error) {
-	fs := store.NewFileStore()
-	err := fs.Open()
-	if err != nil {
-		return nil, err
-	}
-
-	return fs.List(), nil
+	l, err := a.List()
+	return l, err
 }
 
 func handleScanAllRequests(r *http.Request) (interface{}, error) {
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var t struct {
 		Type string `json:"type"`
 	}
+	err := parseBody(r, &t)
 
-	err = json.Unmarshal(body, &t)
-	if err != nil {
-		return nil, err
-	}
-
-	fs := store.NewFileStore()
-	err = fs.Open()
-	if err != nil {
-		return nil, err
-	}
-
-	type Response struct {
-		Ids []int `json:"ids"`
-	}
-
-	var response Response
-
-	for _, item := range fs.List() {
-		switch t.Type {
-		case "current":
-			response.Ids = append(response.Ids, item.Id)
-			work <- WorkItem{Type: Current, Url: item}
-		case "reference":
-			response.Ids = append(response.Ids, item.Id)
-			work <- WorkItem{Type: Reference, Url: item}
-		default:
-			panic("Unsupported type " + t.Type)
-		}
-	}
-
-	return response, nil
+	l, err := a.ScanAll(t.Type)
+	return l, err
 }
 
 func handleScanRequests(r *http.Request) (interface{}, error) {
@@ -248,18 +193,10 @@ func handleScanRequests(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	fs := store.NewFileStore()
-	err = fs.Open()
+	err = a.SubmitScanRequest(id)
 	if err != nil {
 		return nil, err
 	}
-
-	item, err := fs.Get(id)
-	if err != nil {
-		return nil, HandlerError{"", http.StatusNotFound}
-	}
-
-	work <- WorkItem{Type: Current, Url: *item}
 
 	return nil, nil
 }
@@ -270,40 +207,10 @@ func handleInitRequests(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	fs := store.NewFileStore()
-	err = fs.Open()
+	_, err = a.Init(id)
 	if err != nil {
 		return nil, err
 	}
-
-	item, err := fs.Get(id)
-	if err != nil {
-		return nil, err
-	}
-
-	b, err := lib.Run(5*time.Second, item.Url)
-
-	img, _, err := image.Decode(bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-
-	image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
-
-	buf := new(bytes.Buffer)
-	err = png.Encode(buf, image2)
-	if err != nil {
-		return nil, err
-	}
-	b2 := buf.Bytes()
-
-	item.Reference = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
-	err = fs.Update(*item)
-	if err != nil {
-		return nil, err
-	}
-
-	fs.Close()
 
 	return nil, nil
 }
@@ -436,82 +343,12 @@ func handlePDiffRequest(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	fs := store.NewFileStore()
-	err = fs.Open()
+	resp, err := a.PDiff(id)
 	if err != nil {
 		return nil, err
 	}
 
-	output := ""
-	status := true
-
-	for _, item := range fs.List() {
-		if item.Id == id {
-			if item.Reference == "" || item.Current == "" {
-				return nil, HandlerError{"Missing reference or current image", http.StatusInternalServerError}
-			}
-
-			str1 := item.Reference[len("data::image/png;base64,"):]
-			b1, err := base64.StdEncoding.DecodeString(str1)
-			if err != nil {
-				return nil, err
-			}
-
-			err = ioutil.WriteFile("i1.png", b1, 0644)
-			if err != nil {
-				return nil, err
-			}
-
-			str2 := item.Current[len("data::image/png;base64,"):]
-			b2, err := base64.StdEncoding.DecodeString(str2)
-			if err != nil {
-				return nil, err
-			}
-
-			err = ioutil.WriteFile("i2.png", b2, 0644)
-			if err != nil {
-				return nil, err
-			}
-
-			dir, err := os.Getwd()
-			if err != nil {
-				return nil, err
-			}
-
-			cmd := exec.Command("docker",
-				"run",
-				"--rm",
-				"-v",
-				dir+":/images",
-				"jvdanker/pdiff",
-				"-verbose",
-				"i1.png",
-				"i2.png")
-
-			temp, err := cmd.CombinedOutput()
-			if err != nil {
-				status = cmd.ProcessState.Success()
-				output = string(temp)
-			} else {
-				status = cmd.ProcessState.Success()
-				output = string(temp)
-			}
-
-			break
-		}
-	}
-
-	type Response struct {
-		Output string `json:"output"`
-		Status bool   `json:"status"`
-	}
-
-	response := Response{
-		Output: output,
-		Status: status,
-	}
-
-	return response, nil
+	return resp, err
 }
 
 func handleGetScreenshot(r *http.Request) (interface{}, error) {
@@ -542,7 +379,7 @@ func handleGetScreenshot(r *http.Request) (interface{}, error) {
 	}
 
 	if !found {
-		return nil, HandlerError{"", http.StatusNotFound}
+		return nil, store.HandlerError{"", http.StatusNotFound}
 	}
 
 	return response, nil
@@ -554,26 +391,12 @@ func handleGetReferenceScreenshot(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	type ScreenshotResponse struct {
-		Data string `json:"data"`
-	}
-
-	fs := store.NewFileStore()
-	err = fs.Open()
+	resp, err := a.GetReferenceScreenshot(id)
 	if err != nil {
 		return nil, err
 	}
 
-	item, err := fs.Get(id)
-	if err != nil || item.Reference == "" {
-		return nil, HandlerError{"", http.StatusNotFound}
-	}
-
-	response := ScreenshotResponse{
-		Data: item.Reference,
-	}
-
-	return response, nil
+	return resp, nil
 }
 
 func handleGetScanScreenshot(r *http.Request) (interface{}, error) {
@@ -582,75 +405,30 @@ func handleGetScanScreenshot(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	type ScreenshotResponse struct {
-		Data string `json:"data"`
-	}
-
-	fs := store.NewFileStore()
-	err = fs.Open()
+	resp, err := a.GetScanScreenshot(id)
 	if err != nil {
 		return nil, err
 	}
 
-	item, err := fs.Get(id)
-	if err != nil || item.Current == "" {
-		return nil, HandlerError{"", http.StatusNotFound}
-	}
-
-	response := ScreenshotResponse{
-		Data: item.Current,
-	}
-
-	return response, nil
+	return resp, nil
 }
 
 func handleAddUrl(r *http.Request) (interface{}, error) {
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var t struct {
 		Url string `json:"url"`
 	}
 
-	err = json.Unmarshal(body, &t)
+	err := parseBody(r, &t)
 	if err != nil {
 		return nil, err
 	}
 
-	fs := store.NewFileStore()
-	err = fs.Open()
+	resp, err := a.AddUrl(t.Url)
 	if err != nil {
 		return nil, err
 	}
 
-	max := 0
-	for _, item := range fs.List() {
-		if item.Id > max {
-			max = item.Id
-		}
-	}
-
-	u := store.Url{
-		Url: t.Url,
-		Id:  max + 1,
-	}
-
-	err = fs.Add(u)
-	if err != nil {
-		return nil, err
-	}
-
-	fs.Close()
-
-	work <- WorkItem{Type: Reference, Url: u}
-
-	type Response struct {
-		Id int `json:"id"`
-	}
-
-	return Response{Id: max + 1}, nil
+	return resp, nil
 }
 
 func handleDeleteUrl(r *http.Request) (interface{}, error) {
@@ -659,23 +437,28 @@ func handleDeleteUrl(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	fs := store.NewFileStore()
-	err = fs.Open()
+	_, err = a.DeleteUrl(id)
 	if err != nil {
 		return nil, err
 	}
-
-	err = fs.Delete(id)
-	if err != nil {
-		return nil, err
-	}
-
-	fs.Close()
 
 	return nil, nil
 }
 
 // *********************************************************************************
+
+func parseBody(r *http.Request, v interface{}) error {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(body, &v)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func createScreenshot(url string) (string, string, error) {
 	b, err := lib.Run(5*time.Second, url)
@@ -788,9 +571,9 @@ loop:
 			}
 
 			switch w.Type {
-			case Reference:
+			case store.Reference:
 				item.Reference = thumb
-			case Current:
+			case store.Current:
 				item.Current = thumb
 			}
 
