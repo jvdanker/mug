@@ -56,7 +56,7 @@ class App extends Component {
                 fetch("http://localhost:8080/updates")
                     .then(res => res.json())
                     .then(res => {
-                        if (!res.Type) return;
+                        if (res.Type === undefined) return;
                         console.log('tick', res);
 
                         var id = res.Url.id;
@@ -66,11 +66,12 @@ class App extends Component {
                         });
 
                         if (index > -1) {
+                            console.log("type = ", res.Type);
                             switch (res.Type) {
-                                case 3: // update reference
+                                case 0: // updated reference
                                     urls[index].reference = res.Url.reference;
                                     break;
-                                case 4: // update current
+                                case 1: // updated current
                                     urls[index].current = res.Url.current;
                                     break;
                             }

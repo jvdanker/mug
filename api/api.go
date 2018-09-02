@@ -35,12 +35,6 @@ func NewApi(worker Worker) MugApi {
 }
 
 func (a MugApi) GetUpdates() (interface{}, error) {
-	fs := store.NewFileStore()
-	err := fs.Open()
-	if err != nil {
-		return nil, err
-	}
-
 	select {
 	case u := <-a.worker.u:
 		time.Sleep(1 * time.Second)
@@ -49,7 +43,6 @@ func (a MugApi) GetUpdates() (interface{}, error) {
 	default:
 		return nil, nil
 	}
-
 }
 
 func (a MugApi) List() ([]store.Url, error) {

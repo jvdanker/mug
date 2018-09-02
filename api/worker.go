@@ -9,7 +9,6 @@ import (
 )
 
 type WorkType int
-
 type WorkItem struct {
 	Type WorkType
 	Url  store.Url
@@ -19,18 +18,27 @@ const (
 	UpdateReference WorkType = iota
 	UpdateCurrent
 	NewUrl
-	ReferenceUpdated
+)
+
+type NotificationType int
+type NotificationItem struct {
+	Type NotificationType
+	Url  store.Url
+}
+
+const (
+	ReferenceUpdated NotificationType = iota
 	CurrentUpdated
 )
 
 type Worker struct {
 	c chan WorkItem
-	u chan WorkItem
+	u chan NotificationItem
 }
 
 func NewWorker() Worker {
 	var work = make(chan WorkItem, 100)
-	var updates = make(chan WorkItem, 100)
+	var updates = make(chan NotificationItem, 100)
 
 	return Worker{
 		c: work,
@@ -45,7 +53,7 @@ loop:
 		select {
 		case work := <-w.c:
 			time.Sleep(1 * time.Second)
-			fmt.Println("work received %v", w)
+			fmt.Println("work received %v", work)
 
 			fs := store.NewFileStore()
 			err := fs.Open()
@@ -67,13 +75,13 @@ loop:
 			case NewUrl:
 				item.Reference = thumb
 				w.c <- WorkItem{Type: UpdateCurrent, Url: *item}
-				w.u <- WorkItem{Type: ReferenceUpdated, Url: *item}
+				w.u <- NotificationItem{Type: ReferenceUpdated, Url: *item}
 			case UpdateReference:
 				item.Reference = thumb
-				w.u <- WorkItem{Type: ReferenceUpdated, Url: *item}
+				w.u <- NotificationItem{Type: ReferenceUpdated, Url: *item}
 			case UpdateCurrent:
 				item.Current = thumb
-				w.u <- WorkItem{Type: CurrentUpdated, Url: *item}
+				w.u <- NotificationItem{Type: CurrentUpdated, Url: *item}
 			}
 
 			fs.Close()
