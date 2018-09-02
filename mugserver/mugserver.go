@@ -205,7 +205,6 @@ func handleScanAllRequests(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	log.Println(string(body))
 	var t struct {
 		Type string `json:"type"`
 	}
@@ -214,7 +213,6 @@ func handleScanAllRequests(r *http.Request) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Println(t)
 
 	fs := store.NewFileStore()
 	err = fs.Open()
@@ -246,7 +244,9 @@ func handleScanAllRequests(r *http.Request) (interface{}, error) {
 
 func handleScanRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/url/scan/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	fs := store.NewFileStore()
 	err = fs.Open()
@@ -266,7 +266,9 @@ func handleScanRequests(r *http.Request) (interface{}, error) {
 
 func handleInitRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/init/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	fs := store.NewFileStore()
 	err = fs.Open()
@@ -308,7 +310,9 @@ func handleInitRequests(r *http.Request) (interface{}, error) {
 
 func handleMergeRequests(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/merge/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	fs := store.NewFileStore()
 	err = fs.Open()
@@ -369,7 +373,9 @@ func handleMergeRequests(r *http.Request) (interface{}, error) {
 
 func handleDiffRequest(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/diff/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	fs := store.NewFileStore()
 	err = fs.Open()
@@ -426,7 +432,9 @@ func handleDiffRequest(r *http.Request) (interface{}, error) {
 
 func handlePDiffRequest(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/pdiff/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	fs := store.NewFileStore()
 	err = fs.Open()
@@ -508,7 +516,9 @@ func handlePDiffRequest(r *http.Request) (interface{}, error) {
 
 func handleGetScreenshot(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/get/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	type ScreenshotResponse struct {
 		Data string `json:"data"`
@@ -540,7 +550,9 @@ func handleGetScreenshot(r *http.Request) (interface{}, error) {
 
 func handleGetReferenceScreenshot(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/reference/get/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	type ScreenshotResponse struct {
 		Data string `json:"data"`
@@ -566,7 +578,9 @@ func handleGetReferenceScreenshot(r *http.Request) (interface{}, error) {
 
 func handleGetScanScreenshot(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/screenshot/scan/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	type ScreenshotResponse struct {
 		Data string `json:"data"`
@@ -596,7 +610,6 @@ func handleAddUrl(r *http.Request) (interface{}, error) {
 		return nil, err
 	}
 
-	log.Println(string(body))
 	var t struct {
 		Url string `json:"url"`
 	}
@@ -605,7 +618,6 @@ func handleAddUrl(r *http.Request) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Println(t.Url)
 
 	fs := store.NewFileStore()
 	err = fs.Open()
@@ -643,7 +655,9 @@ func handleAddUrl(r *http.Request) (interface{}, error) {
 
 func handleDeleteUrl(r *http.Request) (interface{}, error) {
 	id, err := strconv.Atoi(r.URL.Path[len("/url/delete/"):])
-	fmt.Println(id)
+	if err != nil {
+		return nil, err
+	}
 
 	fs := store.NewFileStore()
 	err = fs.Open()

@@ -2,7 +2,6 @@ package store
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"os"
@@ -45,7 +44,7 @@ func (s *FileStore) Close() {
 
 	b, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
-		fmt.Println("error:", err)
+		panic(err)
 	}
 
 	outfile, err := os.Create("data.json")
