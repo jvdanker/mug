@@ -29,12 +29,12 @@ type Api interface {
 
 type MugApi struct {
 	Api
-	work chan<- store.WorkItem
+	worker Worker
 }
 
-func NewApi(work chan<- store.WorkItem) MugApi {
+func NewApi(worker Worker) MugApi {
 	return MugApi{
-		work: work,
+		worker: worker,
 	}
 }
 
@@ -65,10 +65,10 @@ func (a MugApi) ScanAll(t string) (interface{}, error) {
 		switch t {
 		case "current":
 			response.Ids = append(response.Ids, item.Id)
-			a.work <- store.WorkItem{Type: store.Current, Url: item}
+			a.worker.c <- store.WorkItem{Type: store.Current, Url: item}
 		case "reference":
 			response.Ids = append(response.Ids, item.Id)
-			a.work <- store.WorkItem{Type: store.Reference, Url: item}
+			a.worker.c <- store.WorkItem{Type: store.Reference, Url: item}
 		default:
 			panic("Unsupported type " + t)
 		}
@@ -89,7 +89,7 @@ func (a MugApi) SubmitScanRequest(id int) error {
 		return store.HandlerError{"", http.StatusNotFound}
 	}
 
-	a.work <- store.WorkItem{Type: store.Current, Url: *item}
+	a.worker.c <- store.WorkItem{Type: store.Current, Url: *item}
 
 	return nil
 }
@@ -284,7 +284,7 @@ func (a MugApi) AddUrl(url string) (interface{}, error) {
 
 	fs.Close()
 
-	a.work <- store.WorkItem{Type: store.Reference, Url: u}
+	a.worker.c <- store.WorkItem{Type: store.Reference, Url: u}
 
 	type Response struct {
 		Id int `json:"id"`

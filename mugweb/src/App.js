@@ -189,14 +189,6 @@ class App extends Component {
             .catch(error => console.error('Error:', error));
     }
 
-    mergeLink(item, event) {
-        event.preventDefault();
-
-        fetch("http://localhost:8080/merge/" + item.id)
-            .then(res => console.log(res))
-            .catch(error => console.error('Error:', error));
-    }
-
     diffLink(item, event) {
         event.preventDefault();
 
@@ -239,27 +231,6 @@ class App extends Component {
                 urls: urls
             });
         }
-    }
-
-    getLink(item, event) {
-        event.preventDefault();
-
-        fetch("http://localhost:8080/screenshot/get/" + item.id)
-            .then(res => res.json())
-            .then(res => {
-                var urls = this.state.urls;
-                var index = urls.findIndex(e => {
-                    return e.id === item.id;
-                });
-
-                if (index > -1) {
-                    urls[index].image = res.data;
-                    this.setState({
-                        urls: urls
-                    });
-                }
-            })
-            .catch(error => console.error('Error:', error));
     }
 
     getReference(id, event) {
@@ -318,9 +289,7 @@ class App extends Component {
                     <div>
                         <a href="scan-link.html" onClick={this.scanLink.bind(this, item)}>scan</a>&nbsp;
                         <a href="delete" onClick={this.deleteLink.bind(this, item)}>delete</a>&nbsp;
-                        <a href="get" onClick={this.getLink.bind(this, item)}>get</a>&nbsp;
                         <a href="init" onClick={this.initLink.bind(this, item)}>init</a>&nbsp;
-                        <a href="merge" onClick={this.mergeLink.bind(this, item)}>merge</a>&nbsp;
                         <a href="diff" onClick={this.diffLink.bind(this, item)}>diff</a>&nbsp;
                     </div>
                 </div>
