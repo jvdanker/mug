@@ -11,9 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
-	"runtime"
 	"strconv"
 	"sync"
 )
@@ -291,51 +289,4 @@ func parseBody(r *http.Request, v interface{}) error {
 	}
 
 	return nil
-}
-
-func startChrome() {
-	switch runtime.GOOS {
-	case "linux":
-		path := "/opt/google/chrome/chrome"
-		cmd := exec.Command(path,
-			"--remote-debugging-port=9222",
-			"--disable-extensions",
-			"--disable-default-apps",
-			"--disable-sync",
-			"--hide-scrollbars",
-			"--incognito",
-			"--window-size=800,600",
-			"--user-data-dir=remote-profile")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Println(fmt.Sprint(err) + ": " + string(output))
-			return
-		} else {
-			fmt.Println(string(output))
-		}
-	case "darwin":
-		path := "open"
-		cmd := exec.Command(path,
-			"-n",
-			"-a",
-			"Google Chrome",
-			"--args",
-			"--remote-debugging-port=9222",
-			"--disable-extensions",
-			"--disable-default-apps",
-			"--disable-sync",
-			"--hide-scrollbars",
-			"--incognito",
-			"--window-size=800,600",
-			"--user-data-dir=/tmp/Chrome Alt")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Println(fmt.Sprint(err) + ": " + string(output))
-			return
-		} else {
-			fmt.Println(string(output))
-		}
-	default:
-		panic("Unsupported operating system " + runtime.GOOS)
-	}
 }

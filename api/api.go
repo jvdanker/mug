@@ -1,18 +1,12 @@
 package api
 
 import (
-	"bytes"
 	"encoding/base64"
-	"github.com/jvdanker/mug/lib"
 	"github.com/jvdanker/mug/store"
-	"github.com/nfnt/resize"
-	"image"
-	"image/png"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
-	"time"
 )
 
 type Api interface {
@@ -106,23 +100,12 @@ func (a MugApi) Init(id int) (interface{}, error) {
 		return nil, err
 	}
 
-	b, err := lib.Run(5*time.Second, item.Url)
-
-	img, _, err := image.Decode(bytes.NewReader(b))
+	_, data, err := CreateScreenshot(item.Url)
 	if err != nil {
 		return nil, err
 	}
 
-	image2 := resize.Resize(100, 0, img, resize.NearestNeighbor)
-
-	buf := new(bytes.Buffer)
-	err = png.Encode(buf, image2)
-	if err != nil {
-		return nil, err
-	}
-	b2 := buf.Bytes()
-
-	item.Reference = "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2)
+	item.Reference = data
 	err = fs.Update(*item)
 	if err != nil {
 		return nil, err
