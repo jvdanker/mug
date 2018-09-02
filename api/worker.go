@@ -18,17 +18,20 @@ const (
 	UpdateReference WorkType = iota
 	UpdateCurrent
 	NewUrl
+	UpdateDiff
 )
 
 type NotificationType int
 type NotificationItem struct {
 	Type NotificationType
-	Url  store.Url
+	Id   int
+	Data interface{}
 }
 
 const (
 	ReferenceUpdated NotificationType = iota
 	CurrentUpdated
+	DiffUpdated
 )
 
 type Worker struct {
@@ -66,22 +69,34 @@ loop:
 				panic(err)
 			}
 
-			_, thumb, err := CreateScreenshot(item.Url)
-			if err != nil {
-				panic(err)
-			}
+			if work.Type == UpdateDiff {
+				a := NewApi(w)
+				resp, err := a.PDiff(work.Url.Id)
+				if err != nil {
+					panic(err)
+				}
 
-			switch work.Type {
-			case NewUrl:
-				item.Reference = thumb
-				w.c <- WorkItem{Type: UpdateCurrent, Url: *item}
-				w.u <- NotificationItem{Type: ReferenceUpdated, Url: *item}
-			case UpdateReference:
-				item.Reference = thumb
-				w.u <- NotificationItem{Type: ReferenceUpdated, Url: *item}
-			case UpdateCurrent:
-				item.Current = thumb
-				w.u <- NotificationItem{Type: CurrentUpdated, Url: *item}
+				w.u <- NotificationItem{Type: DiffUpdated, Id: work.Url.Id, Data: resp}
+
+			} else {
+				_, thumb, err := CreateScreenshot(item.Url)
+				if err != nil {
+					panic(err)
+				}
+
+				switch work.Type {
+				case NewUrl:
+					item.Reference = thumb
+					w.c <- WorkItem{Type: UpdateCurrent, Url: *item}
+					w.u <- NotificationItem{Type: ReferenceUpdated, Id: work.Url.Id, Data: *item}
+				case UpdateReference:
+					item.Reference = thumb
+					w.u <- NotificationItem{Type: ReferenceUpdated, Id: work.Url.Id, Data: *item}
+				case UpdateCurrent:
+					item.Current = thumb
+					w.c <- WorkItem{Type: UpdateDiff, Url: *item}
+					w.u <- NotificationItem{Type: CurrentUpdated, Id: work.Url.Id, Data: *item}
+				}
 			}
 
 			fs.Close()

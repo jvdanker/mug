@@ -59,7 +59,7 @@ class App extends Component {
                         if (res.Type === undefined) return;
                         console.log('tick', res);
 
-                        var id = res.Url.id;
+                        var id = res.Id;
                         var urls = this.state.urls;
                         var index = urls.findIndex(e => {
                             return e.id === id;
@@ -69,10 +69,13 @@ class App extends Component {
                             console.log("type = ", res.Type);
                             switch (res.Type) {
                                 case 0: // updated reference
-                                    urls[index].reference = res.Url.reference;
+                                    urls[index].reference = res.Data.reference;
                                     break;
                                 case 1: // updated current
-                                    urls[index].current = res.Url.current;
+                                    urls[index].current = res.Data.current;
+                                    break;
+                                case 2: // updated diff
+                                    urls[index].diff = res.Data.output;
                                     break;
                             }
 
@@ -161,7 +164,7 @@ class App extends Component {
                 });
 
                 if (index > -1) {
-                    urls[index].output = res.output;
+                    urls[index].diff = res.output;
                     this.setState({
                         urls: urls
                     });
@@ -203,7 +206,7 @@ class App extends Component {
                     </ImageContainer>
                     <div>
                         <pre>
-                            {item.output}
+                            {item.diff}
                         </pre>
                     </div>
                     <div>
