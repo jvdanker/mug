@@ -22,7 +22,7 @@ class App extends Component {
             url: 'https://www.govt.nz/'
         };
 
-        this.timerId = -1;
+        this.updateTimerId = -1;
 
         this.handleChange = this.handleChange.bind(this);
         this.addUrl = this.addUrl.bind(this);
@@ -38,12 +38,50 @@ class App extends Component {
                 });
             })
             .catch(error => console.error('Error:', error));
+
+        this.startUpdateTimer();
     }
 
     componentWillUnmount() {
-        if (this.timerId !== -1) {
-            clearInterval(this.timerId);
+        if (this.updateTimerId !== -1) {
+            clearInterval(this.updateTimerId);
+            this.updateTimerId = -1;
         }
+    }
+
+    startUpdateTimer() {
+        console.log("Started update timer...");
+        this.updateTimerId = setInterval(
+            () => {
+                fetch("http://localhost:8080/updates")
+                    .then(res => res.json())
+                    .then(res => {
+                        if (!res.Type) return;
+                        console.log('tick', res);
+
+                        var id = res.Url.id;
+                        var urls = this.state.urls;
+                        var index = urls.findIndex(e => {
+                            return e.id === id;
+                        });
+
+                        if (index > -1) {
+                            switch (res.Type) {
+                                case 3: // update reference
+                                    urls[index].reference = res.Url.reference;
+                                    break;
+                                case 4: // update current
+                                    urls[index].current = res.Url.current;
+                                    break;
+                            }
+
+                            this.setState({
+                                urls: urls
+                            });
+                        }
+                    });
+
+            }, 5000);
     }
 
     handleChange(event) {
@@ -73,22 +111,12 @@ class App extends Component {
                 this.setState({
                     urls: urls
                 });
-
-                console.log(this.timerId);
-                this.timerId = setTimeout(
-                    () => {
-                        console.log('tick');
-                        this.getReference(response.id);
-                    }, 5000
-                );
-
             })
             .catch(error => console.error('Error:', error));
     }
 
     scanAll(event) {
         event.preventDefault();
-        var state = this.state;
 
         fetch("http://localhost:8080/scan",{
             method: 'POST',
@@ -97,41 +125,8 @@ class App extends Component {
                 'Content-Type': 'application/json'
             }
         }).then(res => res.json())
-            .then(response => {
-                console.log(response);
-
-                this.timerId = setInterval(
-                    () => {
-                        console.log('tick', response.ids.length, response.ids);
-
-                        if (response.ids.length === 0) {
-                            clearInterval(this.timerId);
-                            this.timerId = -1;
-                        } else {
-                            var id = response.ids.splice(0, 1)[0];
-
-                            fetch("http://localhost:8080/screenshot/scan/" + id)
-                                .then(res => res.json())
-                                .then(res => {
-                                    console.log(res);
-
-                                    var urls = state.urls;
-                                    var index = urls.findIndex(e => {
-                                        return e.id === id;
-                                    });
-
-                                    if (index > -1) {
-                                        urls[index].current = res.data;
-                                        this.setState({
-                                            urls: urls
-                                        });
-                                    } else {
-                                        console.error("Index not found: ", id);
-                                    }
-                                }).catch(error => console.error('Error:', error));
-                        }
-                    }, 5000);
-            }).catch(error => console.error('Error:', error));
+            .then(response => console.log(response))
+            .catch(error => console.error('Error:', error));
     }
 
     scanLink(item, event) {
@@ -139,46 +134,8 @@ class App extends Component {
 
         fetch("http://localhost:8080/url/scan/" + item.id)
             .then(res => res.json())
-            .then(response => {
-                this.timerId = setTimeout(
-                    () => {
-                        this.getScan(item.id);
-                    }, 5000
-                );
-
-            })
+            .then(response => console.log(response))
             .catch(error => console.error('Error:', error));
-    }
-
-    getScan(id) {
-        fetch("http://localhost:8080/screenshot/scan/" + id)
-            .then(res => res.json())
-            .then(res => {
-                console.log(res);
-
-                var urls = this.state.urls;
-                var index = urls.findIndex(e => {
-                    return e.id === id;
-                });
-
-                if (index > -1) {
-                    urls[index].current = res.data;
-                    this.setState({
-                        urls: urls
-                    });
-                }
-
-                clearInterval(this.timerId);
-                this.timerId = -1;
-            }).catch(error => {
-                console.error('Error:', error);
-
-                this.timerId = setTimeout(
-                    () => {
-                        console.log('tick');
-                        this.getScan(id);
-                    }, 5000);
-            });
     }
 
     initLink(item, event) {
@@ -231,41 +188,6 @@ class App extends Component {
                 urls: urls
             });
         }
-    }
-
-    getReference(id, event) {
-        if (event) {
-            event.preventDefault();
-        }
-
-        fetch("http://localhost:8080/screenshot/reference/get/" + id)
-            .then(res => res.json())
-            .then(res => {
-                console.log(res);
-
-                var urls = this.state.urls;
-                var index = urls.findIndex(e => {
-                    return e.id === id;
-                });
-
-                if (index > -1) {
-                    urls[index].reference = res.data;
-                    this.setState({
-                        urls: urls
-                    });
-                }
-
-                clearInterval(this.timerId);
-                this.timerId = -1;
-            }).catch(error => {
-                console.error('Error:', error);
-
-                this.timerId = setTimeout(
-                    () => {
-                        console.log('tick');
-                        this.getReference(id);
-                    }, 5000);
-            });
     }
 
     render() {

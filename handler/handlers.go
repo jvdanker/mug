@@ -36,9 +36,13 @@ func (h HttpHandlers) AddHandler(pattern string, handler JsonHandler) {
 		WithCors()))
 }
 
+func (h HttpHandlers) HandleGetUpdates(r *http.Request) (interface{}, error) {
+	u, err := h.a.GetUpdates()
+	return u, err
+}
+
 func (h HttpHandlers) HandleShutdown(r *http.Request) (interface{}, error) {
 	h.stop <- os.Interrupt
-
 	return nil, nil
 }
 

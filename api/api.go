@@ -2,14 +2,17 @@ package api
 
 import (
 	"encoding/base64"
+	"fmt"
 	"github.com/jvdanker/mug/store"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
+	"time"
 )
 
 type Api interface {
+	GetUpdates() (interface{}, error)
 	List() ([]store.Url, error)
 	ScanAll(t string) (interface{}, error)
 	SubmitScanRequest(id int) error
@@ -29,6 +32,24 @@ func NewApi(worker Worker) MugApi {
 	return MugApi{
 		worker: worker,
 	}
+}
+
+func (a MugApi) GetUpdates() (interface{}, error) {
+	fs := store.NewFileStore()
+	err := fs.Open()
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case u := <-a.worker.u:
+		time.Sleep(1 * time.Second)
+		fmt.Println("update received %v", u)
+		return u, nil
+	default:
+		return nil, nil
+	}
+
 }
 
 func (a MugApi) List() ([]store.Url, error) {
@@ -265,7 +286,7 @@ func (a MugApi) AddUrl(url string) (interface{}, error) {
 
 	fs.Close()
 
-	a.worker.c <- WorkItem{Type: UpdateReference, Url: u}
+	a.worker.c <- WorkItem{Type: NewUrl, Url: u}
 
 	type Response struct {
 		Id int `json:"id"`

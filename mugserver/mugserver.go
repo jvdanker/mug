@@ -23,6 +23,7 @@ func main() {
 	h := &http.Server{Addr: ":8080", Handler: nil}
 
 	handlers := handler.NewHandlers(stop, worker)
+	handlers.AddHandler("/updates", handlers.HandleGetUpdates)
 	handlers.AddHandler("/shutdown", handlers.HandleShutdown)
 	handlers.AddHandler("/list", handlers.HandleListRequests)
 	handlers.AddHandler("/init/", handlers.HandleInitRequests)
