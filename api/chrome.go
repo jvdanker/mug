@@ -147,7 +147,7 @@ func Run(timeout time.Duration, url string) ([]byte, error) {
 	return screenshot.Data, nil
 }
 
-func startChrome() {
+func StartChrome() {
 	switch runtime.GOOS {
 	case "linux":
 		path := "/opt/google/chrome/chrome"

@@ -19,10 +19,9 @@ class App extends Component {
 
         this.state = {
             urls: [],
-            url: 'https://www.govt.nz/'
+            url: 'https://www.govt.nz/',
+            updateTimerId: -1
         };
-
-        this.updateTimerId = -1;
 
         this.handleChange = this.handleChange.bind(this);
         this.addUrl = this.addUrl.bind(this);
@@ -43,49 +42,72 @@ class App extends Component {
     }
 
     componentWillUnmount() {
-        if (this.updateTimerId !== -1) {
-            clearInterval(this.updateTimerId);
-            this.updateTimerId = -1;
+        if (this.state.updateTimerId !== -1) {
+            clearInterval(this.state.updateTimerId);
+            this.setState({
+                updateTimerId: -1
+            });
+        }
+    }
+
+    toggleTimer() {
+        var id = this.state.updateTimerId;
+
+        if (id === -1) {
+            this.startUpdateTimer()
+        } else {
+            clearInterval(id);
+            this.setState({
+                updateTimerId: -1
+            });
         }
     }
 
     startUpdateTimer() {
         console.log("Started update timer...");
-        this.updateTimerId = setInterval(
-            () => {
-                fetch("http://localhost:8080/updates")
-                    .then(res => res.json())
-                    .then(res => {
-                        if (res.Type === undefined) return;
-                        console.log('tick', res);
+        var updateTimerId = setInterval(() => this.timer(), 5000);
 
-                        var id = res.Id;
-                        var urls = this.state.urls;
-                        var index = urls.findIndex(e => {
-                            return e.id === id;
-                        });
+        this.setState({
+            updateTimerId: updateTimerId
+        });
+    }
 
-                        if (index > -1) {
-                            console.log("type = ", res.Type);
-                            switch (res.Type) {
-                                case 0: // updated reference
-                                    urls[index].reference = res.Data.reference;
-                                    break;
-                                case 1: // updated current
-                                    urls[index].current = res.Data.current;
-                                    break;
-                                case 2: // updated diff
-                                    urls[index].diff = res.Data.output;
-                                    break;
-                            }
+    timer() {
+        fetch("http://localhost:8080/updates")
+            .then(res => res.json())
+            .then(res => {
+                if (res.Type === undefined) return;
+                console.log('tick', res);
 
-                            this.setState({
-                                urls: urls
-                            });
-                        }
+                var id = res.Id;
+                var urls = this.state.urls;
+                var index = urls.findIndex(e => {
+                    return e.id === id;
+                });
+
+                if (index > -1) {
+                    console.log("type = ", res.Type);
+                    switch (res.Type) {
+                        case 0: // updated reference
+                            urls[index].reference = res.Data.reference;
+                            break;
+                        case 1: // updated current
+                            urls[index].current = res.Data.current;
+                            break;
+                        case 2: // updated diff
+                            urls[index].diff = res.Data.results;
+                            urls[index].status = res.Data.status;
+                            break;
+                        default:
+                            console.error("Unknown type = ", res.Type);
+                            break;
+                    }
+
+                    this.setState({
+                        urls: urls
                     });
-
-            }, 5000);
+                }
+            });
     }
 
     handleChange(event) {
@@ -241,6 +263,18 @@ class App extends Component {
 
                     <button type="button" onClick={this.addUrl}>Add URL</button>
                     <button type="button" onClick={this.scanAll.bind(this)}>Scan all</button>
+                    {this.state.updateTimerId !== -1 &&
+                        <div>
+                            Running
+                            <button type="button" onClick={this.toggleTimer.bind(this)}>Stop updates</button>
+                        </div>
+                    }
+                    {this.state.updateTimerId === -1 &&
+                        <div>
+                            Stopped
+                            <button type="button" onClick={this.toggleTimer.bind(this)}>Start updates</button>
+                        </div>
+                    }
                 </form>
 
                 <ul>{listItems}</ul>

@@ -2,13 +2,11 @@ package api
 
 import (
 	"encoding/base64"
-	"fmt"
 	"github.com/jvdanker/mug/store"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
-	"time"
 )
 
 type Api interface {
@@ -17,11 +15,16 @@ type Api interface {
 	ScanAll(t string) (interface{}, error)
 	SubmitScanRequest(id int) error
 	Init(id int) (interface{}, error)
-	PDiff(id int) (interface{}, error)
+	PDiff(id int) (DiffResponse, error)
 	GetReferenceScreenshot(id int) (interface{}, error)
 	GetScanScreenshot(id int) (interface{}, error)
 	AddUrl(url string) (interface{}, error)
 	DeleteUrl(id int) (interface{}, error)
+}
+
+type DiffResponse struct {
+	Output string `json:"output"`
+	Status bool   `json:"status"`
 }
 
 type MugApi struct {
@@ -37,8 +40,6 @@ func NewApi(worker Worker) MugApi {
 func (a MugApi) GetUpdates() (interface{}, error) {
 	select {
 	case u := <-a.worker.u:
-		time.Sleep(1 * time.Second)
-		fmt.Println("update received %v", u)
 		return u, nil
 	default:
 		return nil, nil
@@ -129,11 +130,11 @@ func (a MugApi) Init(id int) (interface{}, error) {
 	return item, nil
 }
 
-func (a MugApi) PDiff(id int) (interface{}, error) {
+func (a MugApi) PDiff(id int) (DiffResponse, error) {
 	fs := store.NewFileStore()
 	err := fs.Open()
 	if err != nil {
-		return nil, err
+		return DiffResponse{}, err
 	}
 
 	output := ""
@@ -141,38 +142,38 @@ func (a MugApi) PDiff(id int) (interface{}, error) {
 
 	item, err := fs.Get(id)
 	if err != nil {
-		return nil, err
+		return DiffResponse{}, err
 	}
 
 	if item.Reference == "" || item.Current == "" {
-		return nil, store.HandlerError{"Missing reference or current image", http.StatusInternalServerError}
+		return DiffResponse{}, store.HandlerError{"Missing reference or current image", http.StatusInternalServerError}
 	}
 
 	str1 := item.Reference[len("data::image/png;base64,"):]
 	b1, err := base64.StdEncoding.DecodeString(str1)
 	if err != nil {
-		return nil, err
+		return DiffResponse{}, err
 	}
 
 	err = ioutil.WriteFile("i1.png", b1, 0644)
 	if err != nil {
-		return nil, err
+		return DiffResponse{}, err
 	}
 
 	str2 := item.Current[len("data::image/png;base64,"):]
 	b2, err := base64.StdEncoding.DecodeString(str2)
 	if err != nil {
-		return nil, err
+		return DiffResponse{}, err
 	}
 
 	err = ioutil.WriteFile("i2.png", b2, 0644)
 	if err != nil {
-		return nil, err
+		return DiffResponse{}, err
 	}
 
 	dir, err := os.Getwd()
 	if err != nil {
-		return nil, err
+		return DiffResponse{}, err
 	}
 
 	cmd := exec.Command("docker",
@@ -194,12 +195,7 @@ func (a MugApi) PDiff(id int) (interface{}, error) {
 		output = string(temp)
 	}
 
-	type Response struct {
-		Output string `json:"output"`
-		Status bool   `json:"status"`
-	}
-
-	response := Response{
+	response := DiffResponse{
 		Output: output,
 		Status: status,
 	}

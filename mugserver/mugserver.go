@@ -41,7 +41,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	//go startChrome()
+	go api.StartChrome()
 	go stopHandler(h, cancel, stop, logger)
 	go worker.Worker(ctx, wg)
 

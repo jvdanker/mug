@@ -1,11 +1,21 @@
 package store
 
+type StatusType int
+
+const (
+	SUCCESS StatusType = iota
+	WARNING
+	FAIL
+)
+
 type Url struct {
-	Id        int    `json:"id"`
-	Url       string `json:"url"`
-	Reference string `json:"reference"`
-	Current   string `json:"current"`
-	Overlay   string `json:"overlay"`
+	Id        int        `json:"id"`
+	Url       string     `json:"url"`
+	Reference string     `json:"reference"`
+	Current   string     `json:"current"`
+	Overlay   string     `json:"overlay"`
+	Results   string     `json:"results"`
+	Status    StatusType `json:"status"`
 }
 
 type Store interface {

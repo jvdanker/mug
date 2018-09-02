@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/jvdanker/mug/store"
 	"sync"
-	"time"
 )
 
 type WorkType int
@@ -55,7 +54,6 @@ loop:
 	for {
 		select {
 		case work := <-w.c:
-			time.Sleep(1 * time.Second)
 			fmt.Println("work received %v", work)
 
 			fs := store.NewFileStore()
@@ -76,7 +74,13 @@ loop:
 					panic(err)
 				}
 
-				w.u <- NotificationItem{Type: DiffUpdated, Id: work.Url.Id, Data: resp}
+				item.Results = resp.Output
+				if resp.Status {
+					item.Status = store.SUCCESS
+				} else {
+					item.Status = store.FAIL
+				}
+				w.u <- NotificationItem{Type: DiffUpdated, Id: work.Url.Id, Data: *item}
 
 			} else {
 				_, thumb, err := CreateScreenshot(item.Url)
