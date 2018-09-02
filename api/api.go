@@ -58,10 +58,10 @@ func (a MugApi) ScanAll(t string) (interface{}, error) {
 		switch t {
 		case "current":
 			response.Ids = append(response.Ids, item.Id)
-			a.worker.c <- store.WorkItem{Type: store.Current, Url: item}
+			a.worker.c <- WorkItem{Type: Current, Url: item}
 		case "reference":
 			response.Ids = append(response.Ids, item.Id)
-			a.worker.c <- store.WorkItem{Type: store.Reference, Url: item}
+			a.worker.c <- WorkItem{Type: Reference, Url: item}
 		default:
 			panic("Unsupported type " + t)
 		}
@@ -82,7 +82,7 @@ func (a MugApi) SubmitScanRequest(id int) error {
 		return store.HandlerError{"", http.StatusNotFound}
 	}
 
-	a.worker.c <- store.WorkItem{Type: store.Current, Url: *item}
+	a.worker.c <- WorkItem{Type: Current, Url: *item}
 
 	return nil
 }
@@ -125,60 +125,59 @@ func (a MugApi) PDiff(id int) (interface{}, error) {
 	output := ""
 	status := true
 
-	for _, item := range fs.List() {
-		if item.Id == id {
-			if item.Reference == "" || item.Current == "" {
-				return nil, store.HandlerError{"Missing reference or current image", http.StatusInternalServerError}
-			}
+	item, err := fs.Get(id)
+	if err != nil {
+		return nil, err
+	}
 
-			str1 := item.Reference[len("data::image/png;base64,"):]
-			b1, err := base64.StdEncoding.DecodeString(str1)
-			if err != nil {
-				return nil, err
-			}
+	if item.Reference == "" || item.Current == "" {
+		return nil, store.HandlerError{"Missing reference or current image", http.StatusInternalServerError}
+	}
 
-			err = ioutil.WriteFile("i1.png", b1, 0644)
-			if err != nil {
-				return nil, err
-			}
+	str1 := item.Reference[len("data::image/png;base64,"):]
+	b1, err := base64.StdEncoding.DecodeString(str1)
+	if err != nil {
+		return nil, err
+	}
 
-			str2 := item.Current[len("data::image/png;base64,"):]
-			b2, err := base64.StdEncoding.DecodeString(str2)
-			if err != nil {
-				return nil, err
-			}
+	err = ioutil.WriteFile("i1.png", b1, 0644)
+	if err != nil {
+		return nil, err
+	}
 
-			err = ioutil.WriteFile("i2.png", b2, 0644)
-			if err != nil {
-				return nil, err
-			}
+	str2 := item.Current[len("data::image/png;base64,"):]
+	b2, err := base64.StdEncoding.DecodeString(str2)
+	if err != nil {
+		return nil, err
+	}
 
-			dir, err := os.Getwd()
-			if err != nil {
-				return nil, err
-			}
+	err = ioutil.WriteFile("i2.png", b2, 0644)
+	if err != nil {
+		return nil, err
+	}
 
-			cmd := exec.Command("docker",
-				"run",
-				"--rm",
-				"-v",
-				dir+":/images",
-				"jvdanker/pdiff",
-				"-verbose",
-				"i1.png",
-				"i2.png")
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 
-			temp, err := cmd.CombinedOutput()
-			if err != nil {
-				status = cmd.ProcessState.Success()
-				output = string(temp)
-			} else {
-				status = cmd.ProcessState.Success()
-				output = string(temp)
-			}
+	cmd := exec.Command("docker",
+		"run",
+		"--rm",
+		"-v",
+		dir+":/images",
+		"jvdanker/pdiff",
+		"-verbose",
+		"i1.png",
+		"i2.png")
 
-			break
-		}
+	temp, err := cmd.CombinedOutput()
+	if err != nil {
+		status = cmd.ProcessState.Success()
+		output = string(temp)
+	} else {
+		status = cmd.ProcessState.Success()
+		output = string(temp)
 	}
 
 	type Response struct {
@@ -266,7 +265,7 @@ func (a MugApi) AddUrl(url string) (interface{}, error) {
 
 	fs.Close()
 
-	a.worker.c <- store.WorkItem{Type: store.Reference, Url: u}
+	a.worker.c <- WorkItem{Type: Reference, Url: u}
 
 	type Response struct {
 		Id int `json:"id"`

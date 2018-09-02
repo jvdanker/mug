@@ -19,17 +19,6 @@ type Store interface {
 	Delete(id int) error
 }
 
-type WorkType int
-type WorkItem struct {
-	Type WorkType
-	Url  Url
-}
-
-const (
-	Reference WorkType = iota
-	Current
-)
-
 type HandlerError struct {
 	Message string
 	Code    int

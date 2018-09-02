@@ -8,12 +8,23 @@ import (
 	"time"
 )
 
+type WorkType int
+type WorkItem struct {
+	Type WorkType
+	Url  store.Url
+}
+
+const (
+	Reference WorkType = iota
+	Current
+)
+
 type Worker struct {
-	c chan store.WorkItem
+	c chan WorkItem
 }
 
 func NewWorker() Worker {
-	var work = make(chan store.WorkItem, 100)
+	var work = make(chan WorkItem, 100)
 
 	return Worker{
 		c: work,
@@ -46,9 +57,9 @@ loop:
 			}
 
 			switch w.Type {
-			case store.Reference:
+			case Reference:
 				item.Reference = thumb
-			case store.Current:
+			case Current:
 				item.Current = thumb
 			}
 
