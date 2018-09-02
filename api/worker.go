@@ -9,14 +9,15 @@ import (
 )
 
 type WorkType int
+
 type WorkItem struct {
 	Type WorkType
 	Url  store.Url
 }
 
 const (
-	Reference WorkType = iota
-	Current
+	UpdateReference WorkType = iota
+	UpdateCurrent
 )
 
 type Worker struct {
@@ -57,9 +58,9 @@ loop:
 			}
 
 			switch w.Type {
-			case Reference:
+			case UpdateReference:
 				item.Reference = thumb
-			case Current:
+			case UpdateCurrent:
 				item.Current = thumb
 			}
 

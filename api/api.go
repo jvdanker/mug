@@ -58,10 +58,10 @@ func (a MugApi) ScanAll(t string) (interface{}, error) {
 		switch t {
 		case "current":
 			response.Ids = append(response.Ids, item.Id)
-			a.worker.c <- WorkItem{Type: Current, Url: item}
+			a.worker.c <- WorkItem{Type: UpdateCurrent, Url: item}
 		case "reference":
 			response.Ids = append(response.Ids, item.Id)
-			a.worker.c <- WorkItem{Type: Reference, Url: item}
+			a.worker.c <- WorkItem{Type: UpdateReference, Url: item}
 		default:
 			panic("Unsupported type " + t)
 		}
@@ -82,7 +82,7 @@ func (a MugApi) SubmitScanRequest(id int) error {
 		return store.HandlerError{"", http.StatusNotFound}
 	}
 
-	a.worker.c <- WorkItem{Type: Current, Url: *item}
+	a.worker.c <- WorkItem{Type: UpdateCurrent, Url: *item}
 
 	return nil
 }
@@ -265,7 +265,7 @@ func (a MugApi) AddUrl(url string) (interface{}, error) {
 
 	fs.Close()
 
-	a.worker.c <- WorkItem{Type: Reference, Url: u}
+	a.worker.c <- WorkItem{Type: UpdateReference, Url: u}
 
 	type Response struct {
 		Id int `json:"id"`
