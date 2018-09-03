@@ -20,7 +20,7 @@ import (
 )
 
 func CreateScreenshot(url string) (string, string, error) {
-	b, err := Run(5*time.Second, url)
+	b, err := run(5*time.Second, url)
 	if err != nil {
 		return "", "", err
 	}
@@ -42,7 +42,7 @@ func CreateScreenshot(url string) (string, string, error) {
 	return "", "data::image/png;base64," + base64.StdEncoding.EncodeToString(b2), nil
 }
 
-func Run(timeout time.Duration, url string) ([]byte, error) {
+func run(timeout time.Duration, url string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -72,7 +72,12 @@ func Run(timeout time.Duration, url string) ([]byte, error) {
 	}
 	defer domContent.Close()
 
-	// Enable events on the Page domain, it's often preferrable to create
+	lef, err := c.Page.LoadEventFired(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enable events on the Page domain, it's often preferable to create
 	// event clients before enabling events so that we don't miss any.
 	if err = c.Page.Enable(ctx); err != nil {
 		return nil, err
@@ -87,6 +92,12 @@ func Run(timeout time.Duration, url string) ([]byte, error) {
 
 	// Wait until we have a DOMContentEventFired event.
 	if _, err = domContent.Recv(); err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("Page loaded with frame ID: %s\n", nav.FrameID)
+
+	if _, err = lef.Recv(); err != nil {
 		return nil, err
 	}
 
